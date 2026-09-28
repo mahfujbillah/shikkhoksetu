@@ -1,0 +1,19 @@
+name: unpack-site
+on:
+  push:
+    paths: ["site.zip"]
+permissions:
+  contents: write
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          unzip -o site.zip
+          git rm -q site.zip
+          git config user.name "mahfujbillah"
+          git config user.email "mahfujbillah@users.noreply.github.com"
+          git add -A
+          git commit -m "Add ShikkhokSetu website code"
+          git push
