@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fbfaf7;
+  --foreground: #14201c;
+  --card: #ffffff;
+  --muted: #f0eee8;
+  --muted-foreground: #5d6763;
+  --border: #e3e0d8;
+  --primary: #0f766e;
+  --primary-foreground: #ffffff;
+  --accent: #f59e0b;
+  --accent-foreground: #3b2500;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0d1513;
+    --foreground: #e8efec;
+    --card: #131e1b;
+    --muted: #1a2724;
+    --muted-foreground: #9aa8a3;
+    --border: #25332f;
+    --primary: #2dd4bf;
+    --primary-foreground: #042f2b;
+    --accent: #fbbf24;
+    --accent-foreground: #2a1a00;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --font-sans: var(--font-latin), var(--font-bengali), system-ui, sans-serif;
+  --font-display: var(--font-fraunces), var(--font-tiro), var(--font-bengali), serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.field {
+  @apply w-full rounded-xl border border-border bg-card px-3.5 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20;
+}
