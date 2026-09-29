@@ -1,0 +1,670 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// ShikkhokSetu — Tuition & Tutor Hiring Marketplace (LMS-integrated module)
+//
+// Conventions
+// • User.id is the Supabase Auth user id (uuid). Auth lives in Supabase; all
+//   marketplace data lives here and is accessed ONLY through the server
+//   (Prisma connects as the table owner). RLS is enabled on every table with no
+//   policies, so the public anon key can never read these tables directly.
+// • Money is stored as Decimal(12,2) in BDT unless `currency` says otherwise.
+// • Grades / subjects / cities are catalog codes defined in src/lib/catalog.ts
+//   (kept as strings so the catalog can grow without a migration).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Prisma 7 "Rust-free" client: pure TypeScript query compiler + node-postgres driver adapter.
+// No native engine binary → small serverless bundles on Vercel. Connection URL lives in prisma.config.ts.
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum UserRole {
+  STUDENT_GUARDIAN
+  TUTOR
+  ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum GenderPreference {
+  ANY
+  MALE
+  FEMALE
+}
+
+enum Curriculum {
+  BANGLA_MEDIUM
+  ENGLISH_VERSION
+  ENGLISH_MEDIUM_CAMBRIDGE
+  ENGLISH_MEDIUM_EDEXCEL
+  INTERNATIONAL_BACCALAUREATE
+  MADRASAH_ALIA
+  MADRASAH_QAWMI
+  OTHER
+}
+
+enum TuitionType {
+  HOME
+  ONLINE_ONE_TO_ONE
+  GROUP_BATCH
+}
+
+enum VerificationStatus {
+  UNVERIFIED // profile exists, documents not submitted
+  PENDING // documents submitted, waiting for admin review
+  VERIFIED // badge issued
+  REJECTED // admin rejected; tutor may re-submit
+}
+
+enum KycDocumentType {
+  NID
+  PASSPORT
+  STUDENT_ID
+  EDUCATIONAL_CERTIFICATE
+  PHOTO
+  OTHER
+}
+
+enum KycDocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TuitionPostStatus {
+  OPEN // accepting applications
+  SHORTLISTED // guardian has shortlisted ≥1 tutor (still accepting applications)
+  CONFIRMED // a tutor has been hired (agreement active) — closed
+  CANCELLED
+}
+
+enum ApplicationStatus {
+  PENDING
+  SHORTLISTED
+  REJECTED
+  CONFIRMED
+  WITHDRAWN
+}
+
+enum TrialMode {
+  ONLINE_LMS // in-platform LMS live classroom / whiteboard
+  ONLINE_MEET // external video link (Jitsi auto-generated, or a pasted Google Meet link)
+  IN_PERSON
+}
+
+enum TrialStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AgreementStatus {
+  PENDING_SIGNATURES // guardian generated & signed, waiting for tutor
+  ACTIVE // both signed — hire is locked
+  COMPLETED
+  TERMINATED
+  CANCELLED // withdrawn before becoming active
+}
+
+enum CommissionPayer {
+  TUTOR
+  GUARDIAN
+}
+
+enum MonetizationMode {
+  COMMISSION // platform takes a % of the first month's salary
+  CREDITS // tutors spend credits to apply; no commission
+  HYBRID // both
+}
+
+enum AgreementPaymentStatus {
+  UNPAID
+  PAID
+  WAIVED
+  REFUNDED
+}
+
+enum InvoiceType {
+  PLATFORM_COMMISSION
+  TRIAL_FEE
+  CREDIT_PACK
+  SUBSCRIPTION
+}
+
+enum InvoiceStatus {
+  ISSUED
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum PaymentProvider {
+  SSLCOMMERZ // cards, bKash, Nagad, Rocket via one gateway
+  STRIPE // international cards
+  MANUAL // admin-recorded (cash / bank / direct bKash)
+}
+
+enum TransactionStatus {
+  INITIATED
+  SUCCESS
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum SessionStatus {
+  COMPLETED
+  MISSED
+  CANCELLED
+  RESCHEDULED
+}
+
+enum SalaryStatus {
+  DUE
+  PAID
+}
+
+enum LmsResourceType {
+  COURSE
+  VIDEO
+  ASSIGNMENT
+  MATERIAL
+  QUIZ
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+model User {
+  id           String   @id @db.Uuid // = auth.users.id
+  email        String   @unique
+  fullName     String
+  phone        String? // private — revealed to the counter-party only after an agreement is ACTIVE
+  role         UserRole @default(STUDENT_GUARDIAN)
+  isSuperAdmin Boolean  @default(false)
+  isBlocked    Boolean  @default(false)
+  avatarUrl    String?
+  lmsUserId    String?  @unique // id of the same person in the parent LMS
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tutorProfile       TutorProfile?
+  tuitionPosts       TuitionPost[]
+  guardianAgreements TuitionAgreement[] @relation("GuardianAgreements")
+  invoices           Invoice[]
+  notifications      Notification[]
+  reviewsWritten     Review[]
+  kycReviews         KycDocument[]      @relation("KycReviewer")
+  trialsCreated      TrialSession[]
+  sessionsLogged     TutoringSession[]
+  lmsShares          LmsResourceShare[]
+  auditLogs          AuditLog[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model TutorProfile {
+  id     String @id @default(cuid())
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gender            Gender
+  headline          String? // e.g. "BUET EEE • Physics & Math specialist"
+  bio               String?
+  // Education
+  university        String
+  department        String?
+  degree            String? // e.g. "BSc in EEE"
+  graduationYear    Int?
+  currentlyStudying Boolean       @default(true)
+  // Teaching preferences
+  experienceYears   Int           @default(0)
+  monthlyRate       Decimal?      @db.Decimal(12, 2)
+  hourlyRate        Decimal?      @db.Decimal(12, 2)
+  subjects          String[] // catalog codes
+  grades            String[] // catalog codes
+  curricula         Curriculum[]
+  tuitionTypes      TuitionType[]
+  preferredCities   String[]
+  preferredAreas    String[]
+  maxDaysPerWeek    Int?
+
+  // Verification (KYC)
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  verifiedAt         DateTime?
+  verificationNote   String? // admin note shown to the tutor on rejection
+
+  // Reputation (denormalised, updated transactionally with Review)
+  ratingAvg         Decimal @default(0) @db.Decimal(3, 2)
+  ratingCount       Int     @default(0)
+  completedTuitions Int     @default(0)
+
+  // Credits (used when MonetizationMode is CREDITS/HYBRID)
+  creditBalance Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  kycDocuments KycDocument[]
+  applications TuitionApplication[]
+  agreements   TuitionAgreement[]
+  reviews      Review[]
+  creditLedger CreditLedger[]
+
+  @@index([verificationStatus])
+  @@index([subjects], type: Gin)
+  @@index([preferredCities], type: Gin)
+  @@map("tutor_profiles")
+}
+
+model KycDocument {
+  id              String            @id @default(cuid())
+  tutorProfileId  String
+  tutorProfile    TutorProfile      @relation(fields: [tutorProfileId], references: [id], onDelete: Cascade)
+  type            KycDocumentType
+  storagePath     String // private Supabase Storage object: kyc/<userId>/<file>
+  fileName        String
+  mimeType        String
+  sizeBytes       Int
+  status          KycDocumentStatus @default(PENDING)
+  rejectionReason String?
+  reviewedById    String?           @db.Uuid
+  reviewedBy      User?             @relation("KycReviewer", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+  createdAt       DateTime          @default(now())
+
+  @@index([tutorProfileId])
+  @@index([status, createdAt])
+  @@map("kyc_documents")
+}
+
+// ───────────────────────────── Jobs ─────────────────────────────
+
+model TuitionPost {
+  id         String @id @default(cuid())
+  number     Int    @unique @default(autoincrement()) // human-friendly job id (#1024)
+  guardianId String @db.Uuid
+  guardian   User   @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  title            String
+  studentName      String?
+  studentGender    Gender?
+  studentsCount    Int              @default(1)
+  grade            String // catalog code
+  curriculum       Curriculum
+  subjects         String[] // catalog codes
+  tuitionType      TuitionType
+  daysPerWeek      Int
+  sessionMinutes   Int              @default(60)
+  preferredTime    String? // "After 5pm"
+  budgetMin        Decimal?         @db.Decimal(12, 2)
+  budgetMax        Decimal          @db.Decimal(12, 2)
+  salaryNegotiable Boolean          @default(false)
+  genderPreference GenderPreference @default(ANY)
+  isOnline         Boolean          @default(false)
+  city             String? // null when online
+  area             String?
+  addressLine      String? // PRIVATE — only shown to the hired tutor
+  requirements     String?
+  startDate        DateTime?
+
+  status            TuitionPostStatus @default(OPEN)
+  applicationsCount Int               @default(0)
+  shortlistedCount  Int               @default(0)
+  maxShortlist      Int               @default(5)
+  hiredAt           DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  applications TuitionApplication[]
+  agreements   TuitionAgreement[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([city, area])
+  @@index([curriculum])
+  @@index([tuitionType])
+  @@index([subjects], type: Gin)
+  @@index([guardianId])
+  @@map("tuition_posts")
+}
+
+model TuitionApplication {
+  id             String       @id @default(cuid())
+  postId         String
+  post           TuitionPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tutorProfileId String
+  tutorProfile   TutorProfile @relation(fields: [tutorProfileId], references: [id], onDelete: Cascade)
+
+  coverNote       String // the tutor's custom pitch
+  proposedSalary  Decimal?          @db.Decimal(12, 2)
+  availability    String?
+  status          ApplicationStatus @default(PENDING)
+  guardianNote    String? // private note by the guardian while comparing
+  shortlistedAt   DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  creditsSpent    Int               @default(0)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  trials    TrialSession[]
+  agreement TuitionAgreement?
+
+  // One application per tutor per job — the database is the final guard against double-submits.
+  @@unique([postId, tutorProfileId])
+  @@index([postId, status])
+  @@index([tutorProfileId, status])
+  @@map("tuition_applications")
+}
+
+model TrialSession {
+  id            String             @id @default(cuid())
+  applicationId String
+  application   TuitionApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  createdById   String             @db.Uuid
+  createdBy     User               @relation(fields: [createdById], references: [id])
+
+  scheduledAt      DateTime
+  durationMinutes  Int         @default(45)
+  mode             TrialMode
+  meetingLink      String?
+  location         String?
+  isPaid           Boolean     @default(false)
+  fee              Decimal?    @db.Decimal(12, 2)
+  status           TrialStatus @default(SCHEDULED)
+  guardianFeedback String?
+  guardianRating   Int?
+  tutorFeedback    String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  invoice Invoice?
+
+  @@index([applicationId])
+  @@index([scheduledAt])
+  @@map("trial_sessions")
+}
+
+// ───────────────────────────── Hiring ─────────────────────────────
+
+model TuitionAgreement {
+  id              String             @id @default(cuid())
+  agreementNumber Int                @unique @default(autoincrement())
+  applicationId   String             @unique
+  application     TuitionApplication @relation(fields: [applicationId], references: [id])
+  postId          String
+  post            TuitionPost        @relation(fields: [postId], references: [id])
+  guardianId      String             @db.Uuid
+  guardian        User               @relation("GuardianAgreements", fields: [guardianId], references: [id])
+  tutorProfileId  String
+  tutorProfile    TutorProfile       @relation(fields: [tutorProfileId], references: [id])
+
+  // Agreed terms (snapshot — later edits to the post do not change a signed agreement)
+  monthlySalary  Decimal     @db.Decimal(12, 2)
+  daysPerWeek    Int
+  sessionMinutes Int
+  startDate      DateTime
+  tuitionType    TuitionType
+  grade          String
+  curriculum     Curriculum
+  subjects       String[]
+  location       String?
+  specialTerms   String?
+  terms          String // full rendered text that both parties sign
+  termsVersion   String      @default("2026-10")
+
+  // Platform revenue
+  commissionRate   Decimal                @db.Decimal(5, 2) // % of first month
+  commissionAmount Decimal                @db.Decimal(12, 2)
+  commissionPayer  CommissionPayer
+  paymentStatus    AgreementPaymentStatus @default(UNPAID)
+
+  // Lifecycle & e-signatures (typed full name + timestamp + IP)
+  status            AgreementStatus @default(PENDING_SIGNATURES)
+  guardianSignature String?
+  guardianSignedAt  DateTime?
+  guardianSignedIp  String?
+  tutorSignature    String?
+  tutorSignedAt     DateTime?
+  tutorSignedIp     String?
+  activatedAt       DateTime?
+  endedAt           DateTime?
+  endReason         String?
+
+  // LMS link for this private student
+  lmsStudentId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices       Invoice[]
+  sessions       TutoringSession[]
+  salaryPayments SalaryPayment[]
+  lmsShares      LmsResourceShare[]
+  lmsProgress    LmsProgressSnapshot[]
+  review         Review?
+
+  @@index([postId, status])
+  @@index([guardianId, status])
+  @@index([tutorProfileId, status])
+  @@map("tuition_agreements")
+}
+
+// ───────────────────────────── Revenue ─────────────────────────────
+
+model Invoice {
+  id             String            @id @default(cuid())
+  invoiceNumber  String            @unique // INV-2026-000123
+  type           InvoiceType
+  billedToId     String            @db.Uuid
+  billedTo       User              @relation(fields: [billedToId], references: [id])
+  agreementId    String?
+  agreement      TuitionAgreement? @relation(fields: [agreementId], references: [id])
+  trialSessionId String?           @unique
+  trialSession   TrialSession?     @relation(fields: [trialSessionId], references: [id])
+
+  amount         Decimal       @db.Decimal(12, 2)
+  currency       String        @default("BDT")
+  lineItems      Json // [{ label, amount }]
+  status         InvoiceStatus @default(ISSUED)
+  issuedAt       DateTime      @default(now())
+  dueDate        DateTime
+  paidAt         DateTime?
+  notes          String?
+  // for CREDIT_PACK invoices
+  creditsGranted Int?
+
+  transactions PaymentTransaction[]
+
+  // At most one commission invoice per agreement (idempotent generation)
+  @@unique([agreementId, type])
+  @@index([billedToId, status])
+  @@index([status, dueDate])
+  @@map("invoices")
+}
+
+model PaymentTransaction {
+  id            String            @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice           @relation(fields: [invoiceId], references: [id])
+  provider      PaymentProvider
+  // Our id sent to the gateway (SSLCommerz tran_id / Stripe client_reference_id). Unique ⇒ idempotent callbacks.
+  tranId        String            @unique
+  providerRef   String? // gateway's own id (val_id / bank_tran_id / Stripe session id)
+  amount        Decimal           @db.Decimal(12, 2)
+  currency      String
+  status        TransactionStatus @default(INITIATED)
+  failureReason String?
+  rawPayload    Json?
+  recordedById  String?           @db.Uuid // MANUAL payments
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([invoiceId])
+  @@map("payment_transactions")
+}
+
+model CreditLedger {
+  id             String       @id @default(cuid())
+  tutorProfileId String
+  tutorProfile   TutorProfile @relation(fields: [tutorProfileId], references: [id], onDelete: Cascade)
+  delta          Int // + purchase / grant, − spend
+  reason         String // "APPLY:<applicationId>", "PURCHASE:<invoiceId>", "ADMIN_GRANT"
+  createdAt      DateTime     @default(now())
+
+  @@index([tutorProfileId, createdAt])
+  @@map("credit_ledger")
+}
+
+// ───────────────────────────── Running a tuition ─────────────────────────────
+
+model TutoringSession {
+  id                  String           @id @default(cuid())
+  agreementId         String
+  agreement           TuitionAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  loggedById          String           @db.Uuid
+  loggedBy            User             @relation(fields: [loggedById], references: [id])
+  date                DateTime         @db.Date
+  durationMinutes     Int
+  status              SessionStatus    @default(COMPLETED)
+  topicsCovered       String?
+  homework            String?
+  tutorNote           String?
+  guardianConfirmed   Boolean          @default(false)
+  guardianConfirmedAt DateTime?
+  guardianFeedback    String?
+  studentRating       Int? // 1–5, given by guardian/student for that session
+  createdAt           DateTime         @default(now())
+
+  @@unique([agreementId, date]) // one log per day per engagement
+  @@index([agreementId, date(sort: Desc)])
+  @@map("tutoring_sessions")
+}
+
+/// Salary milestones between guardian and tutor (salary itself is paid directly; this is the shared ledger).
+model SalaryPayment {
+  id               String           @id @default(cuid())
+  agreementId      String
+  agreement        TuitionAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  periodMonth      String // "2026-10"
+  amount           Decimal          @db.Decimal(12, 2)
+  status           SalaryStatus     @default(DUE)
+  paidAt           DateTime?
+  method           String? // cash / bKash / bank
+  note             String?
+  confirmedByTutor Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([agreementId, periodMonth])
+  @@map("salary_payments")
+}
+
+model Review {
+  id             String           @id @default(cuid())
+  agreementId    String           @unique
+  agreement      TuitionAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  tutorProfileId String
+  tutorProfile   TutorProfile     @relation(fields: [tutorProfileId], references: [id], onDelete: Cascade)
+  authorId       String           @db.Uuid
+  author         User             @relation(fields: [authorId], references: [id])
+  rating         Int // 1–5
+  comment        String?
+  createdAt      DateTime         @default(now())
+
+  @@index([tutorProfileId, createdAt(sort: Desc)])
+  @@map("reviews")
+}
+
+// ───────────────────────────── LMS integration ─────────────────────────────
+
+model LmsResourceShare {
+  id            String           @id @default(cuid())
+  agreementId   String
+  agreement     TuitionAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  sharedById    String           @db.Uuid
+  sharedBy      User             @relation(fields: [sharedById], references: [id])
+  type          LmsResourceType
+  title         String
+  url           String
+  lmsResourceId String? // course/assignment id in the parent LMS
+  note          String?
+  dueDate       DateTime?
+  createdAt     DateTime         @default(now())
+
+  @@index([agreementId, createdAt(sort: Desc)])
+  @@map("lms_resource_shares")
+}
+
+/// Pushed by the parent LMS (POST /api/lms/progress) so tutors & guardians see course performance next to sessions.
+model LmsProgressSnapshot {
+  id           String           @id @default(cuid())
+  agreementId  String
+  agreement    TuitionAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  lmsStudentId String
+  courseId     String?
+  courseTitle  String?
+  metric       String // "completion_pct" | "quiz_avg" | "assignment_score" …
+  value        Float
+  payload      Json?
+  recordedAt   DateTime         @default(now())
+
+  @@index([agreementId, recordedAt(sort: Desc)])
+  @@map("lms_progress_snapshots")
+}
+
+// ───────────────────────────── Platform ─────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+/// Singleton row (id = 1) — admin-editable business rules.
+model PlatformSetting {
+  id               Int              @id @default(1)
+  monetizationMode MonetizationMode @default(COMMISSION)
+  commissionRate   Decimal          @default(50) @db.Decimal(5, 2) // % of first month's salary
+  commissionPayer  CommissionPayer  @default(TUTOR)
+  applyCreditCost  Int              @default(1)
+  maxShortlist     Int              @default(5)
+  invoiceDueDays   Int              @default(7)
+  updatedAt        DateTime         @updatedAt
+
+  @@map("platform_settings")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?  @db.Uuid
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String // "KYC_APPROVE", "USER_BLOCK", "INVOICE_MARK_PAID" …
+  entity    String
+  entityId  String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

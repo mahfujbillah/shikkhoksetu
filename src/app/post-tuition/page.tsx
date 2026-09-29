@@ -1,91 +1,29 @@
-"use client";
+import Link from "next/link";
+import { getT } from "@/lib/i18n-server";
+import { getSessionUser } from "@/server/auth";
+import { PostTuitionForm } from "@/components/PostTuitionForm";
+import { buttonVariants } from "@/components/ui/button";
 
-import { useLang } from "@/components/LanguageProvider";
-import { useAuth } from "@/components/AuthProvider";
-import { Chips, Field, FormShell, nums } from "@/components/FormBits";
-import { supabase } from "@/lib/supabase";
+export const metadata = { title: "Post a tuition" };
 
-export default function PostTuitionPage() {
-  const { t, num } = useLang();
-  const { user } = useAuth();
-  const f = t.postForm;
-  const o = t.options;
-
-  const save = async (fd: FormData) => {
-    if (!user) return t.auth.needLogin;
-    const sb = supabase();
-    const { data, error } = await sb
-      .from("tuitions")
-      .insert({
-        guardian_id: user.id,
-        cls: Number(fd.get("cls")),
-        subjects: nums(fd, "subjects"),
-        medium: Number(fd.get("medium")),
-        area: Number(fd.get("area")),
-        address: String(fd.get("address") || "") || null,
-        days: Number(fd.get("days")),
-        salary: Number(fd.get("salary")),
-        gender: Number(fd.get("gender")),
-        note: String(fd.get("note") || "") || null,
-      })
-      .select("id")
-      .single();
-    if (error) return error.message;
-    const c = await sb.from("tuition_contacts").insert({ tuition_id: data.id, name: String(fd.get("name")), phone: String(fd.get("phone")) });
-    return c.error ? c.error.message : null;
-  };
-
+export default async function PostTuitionPage() {
+  const [{ t }, user] = await Promise.all([getT(), getSessionUser()]);
   return (
-    <FormShell title={f.title} desc={f.desc} submit={f.submit} role="guardian" gateText={t.auth.needGuardian} onSubmit={save}>
-      <Field label={f.studentClass}>
-        <select name="cls" className="field" required defaultValue="">
-          <option value="" disabled>—</option>
-          {o.classes.map((c, i) => <option key={i} value={i}>{c}</option>)}
-        </select>
-      </Field>
-      <Field label={f.medium}>
-        <select name="medium" className="field" defaultValue="0">
-          {o.mediums.map((c, i) => <option key={i} value={i}>{c}</option>)}
-        </select>
-      </Field>
-      <Field label={f.subjects} full>
-        <Chips name="subjects" options={o.subjects} />
-      </Field>
-      <Field label={f.area}>
-        <select name="area" className="field" required defaultValue="">
-          <option value="" disabled>—</option>
-          {o.areas.map((c, i) => <option key={i} value={i}>{c}</option>)}
-        </select>
-      </Field>
-      <Field label={f.address}>
-        <input name="address" className="field" />
-      </Field>
-      <Field label={f.days}>
-        <select name="days" className="field" defaultValue="3">
-          {[1, 2, 3, 4, 5, 6, 7].map((d) => <option key={d} value={d}>{num(d)}</option>)}
-        </select>
-      </Field>
-      <Field label={f.salary}>
-        <input name="salary" className="field" type="number" min={500} step={500} placeholder="5000" required />
-      </Field>
-      <Field label={f.gender} full>
-        <div className="flex flex-wrap gap-4 text-sm">
-          {o.genders.map((g, i) => (
-            <label key={i} className="flex items-center gap-2">
-              <input type="radio" name="gender" value={i} defaultChecked={i === 0} className="accent-[var(--primary)]" /> {g}
-            </label>
-          ))}
-        </div>
-      </Field>
-      <Field label={f.note} full>
-        <textarea name="note" className="field min-h-24" />
-      </Field>
-      <Field label={f.name}>
-        <input name="name" className="field" required />
-      </Field>
-      <Field label={f.phone}>
-        <input name="phone" className="field" type="tel" inputMode="tel" pattern="01[0-9]{9}" placeholder="01XXXXXXXXX" required />
-      </Field>
-    </FormShell>
+    <div className="mx-auto max-w-3xl px-4 py-10">
+      <h1 className="font-display text-4xl font-bold">{t("টিউশন পোস্ট করুন", "Post a tuition requirement")}</h1>
+      <p className="mt-2 text-muted-foreground">{t("পোস্ট করা ফ্রি। যাচাইকৃত শিক্ষকরা আবেদন করবেন; আপনি তুলনা করে ৫ জন পর্যন্ত শর্টলিস্ট করবেন।", "Posting is free. Verified tutors apply; you compare them and shortlist up to 5.")}</p>
+      <div className="mt-8">
+        {!user ? (
+          <div className="rounded-2xl border border-border bg-card p-8 text-center">
+            <p className="font-semibold">{t("পোস্ট করতে অভিভাবক অ্যাকাউন্টে লগইন করুন।", "Log in with a guardian account to post.")}</p>
+            <div className="mt-4 flex justify-center gap-2"><Link href="/login?next=/post-tuition" className={buttonVariants()}>{t("লগইন", "Log in")}</Link><Link href="/signup?next=/post-tuition" className={buttonVariants({ variant: "outline" })}>{t("অ্যাকাউন্ট খুলুন", "Sign up")}</Link></div>
+          </div>
+        ) : user.role !== "STUDENT_GUARDIAN" ? (
+          <p className="rounded-2xl border border-dashed border-border p-8 text-center text-muted-foreground">{t("শুধু অভিভাবক/শিক্ষার্থী অ্যাকাউন্ট থেকে টিউশন পোস্ট করা যায়।", "Only guardian/student accounts can post tuitions.")}</p>
+        ) : (
+          <PostTuitionForm defaultPhone={user.phone} />
+        )}
+      </div>
+    </div>
   );
 }

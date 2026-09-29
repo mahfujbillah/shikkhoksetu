@@ -1,193 +1,82 @@
-"use client";
-
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Phone } from "lucide-react";
-import { useLang } from "@/components/LanguageProvider";
-import { useAuth } from "@/components/AuthProvider";
-import { isConfigured, supabase } from "@/lib/supabase";
-import { TUITION_COLS } from "@/lib/data";
+import { ArrowRight, Bell, FileSignature, IdCard, Receipt } from "lucide-react";
+import { db } from "@/lib/db";
+import { getT } from "@/lib/i18n-server";
+import { formatNumber, timeAgo } from "@/lib/i18n";
+import { requireUser } from "@/server/auth";
+import { markOverdueInvoices } from "@/server/services/billing";
+import { markNotificationsReadAction } from "@/server/actions/account";
+import { PageHeader } from "@/components/PageHeader";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
-type T = { id: number; cls: number; subjects: number[]; area: number; salary: number; days: number; status: string; applicants_count: number };
-type App = { id: number; status: "pending" | "accepted" | "rejected"; tuition_id: number; tutor_id: string; tutors?: { full_name: string; institution: string; verified: boolean; experience: number } };
+export default async function DashboardHome() {
+  const user = await requireUser();
+  const { t, lang } = await getT();
+  await markOverdueInvoices().catch(() => null);
+  const tutor = user.role === "TUTOR";
 
-export default function DashboardPage() {
-  const { t, num } = useLang();
-  const { user, profile, loading } = useAuth();
+  const [notifications, toSign, dueInvoices, profile, counts] = await Promise.all([
+    db.notification.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 12 }),
+    db.tuitionAgreement.findMany({ where: tutor ? { tutorProfile: { userId: user.id }, status: "PENDING_SIGNATURES" } : { guardianId: user.id, status: "PENDING_SIGNATURES" }, include: { post: { select: { number: true, title: true } } } }),
+    db.invoice.count({ where: { billedToId: user.id, status: { in: ["ISSUED", "OVERDUE"] } } }),
+    tutor ? db.tutorProfile.findUnique({ where: { userId: user.id }, select: { verificationStatus: true, verificationNote: true, creditBalance: true } }) : null,
+    tutor
+      ? Promise.all([db.tuitionApplication.count({ where: { tutorProfile: { userId: user.id } } }), db.tuitionApplication.count({ where: { tutorProfile: { userId: user.id }, status: "SHORTLISTED" } }), db.tuitionAgreement.count({ where: { tutorProfile: { userId: user.id }, status: "ACTIVE" } })])
+      : Promise.all([db.tuitionPost.count({ where: { guardianId: user.id, status: { in: ["OPEN", "SHORTLISTED"] } } }), db.tuitionApplication.count({ where: { post: { guardianId: user.id }, status: "PENDING" } }), db.tuitionAgreement.count({ where: { guardianId: user.id, status: "ACTIVE" } })]),
+  ]);
 
-  if (!isConfigured) return <Shell title={t.dash.title}><p className="text-muted-foreground">{t.formNote}</p></Shell>;
-  if (loading) return <Shell title={t.dash.title}><p className="text-muted-foreground">{t.auth.wait}</p></Shell>;
-  if (!user || !profile)
-    return (
-      <Shell title={t.dash.title}>
-        <Link href="/login?next=/dashboard" className="rounded-full bg-primary px-6 py-2.5 font-semibold text-primary-foreground">{t.auth.goLogin}</Link>
-      </Shell>
-    );
-
-  return (
-    <Shell title={t.dash.title} sub={`${profile.full_name} · ${profile.role === "tutor" ? t.auth.tutor : profile.role === "admin" ? "Admin" : t.auth.guardian}`}>
-      {profile.role === "admin" && <Link href="/admin" className="mb-6 inline-block rounded-full bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground">{t.dash.admin}</Link>}
-      {profile.role === "tutor" ? <TutorView userId={user.id} num={num} /> : <GuardianView userId={user.id} num={num} />}
-    </Shell>
-  );
-}
-
-function Shell({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
-  return (
-    <div className="mx-auto max-w-4xl px-4 py-12">
-      <h1 className="font-display text-4xl font-bold">{title}</h1>
-      {sub && <p className="mt-1 text-muted-foreground">{sub}</p>}
-      <div className="mt-8">{children}</div>
-    </div>
-  );
-}
-
-function useTitle() {
-  const { t } = useLang();
-  return (x: { cls: number; subjects: number[] }) => `${t.options.classes[x.cls]} — ${x.subjects.map((s) => t.options.subjects[s]).join(", ")}`;
-}
-
-function GuardianView({ userId, num }: { userId: string; num: (n: number | string) => string }) {
-  const { t } = useLang();
-  const title = useTitle();
-  const [items, setItems] = useState<T[] | null>(null);
-  const [apps, setApps] = useState<App[]>([]);
-  const [phones, setPhones] = useState<Record<string, string>>({});
-
-  const load = useCallback(async () => {
-    const sb = supabase();
-    const { data } = await sb.from("tuitions").select(TUITION_COLS).eq("guardian_id", userId).order("created_at", { ascending: false });
-    const list = (data as T[]) ?? [];
-    setItems(list);
-    if (!list.length) return;
-    const { data: a } = await sb
-      .from("applications")
-      .select("id, status, tuition_id, tutor_id, tutors(full_name, institution, verified, experience)")
-      .in("tuition_id", list.map((x) => x.id))
-      .order("created_at");
-    setApps((a as unknown as App[]) ?? []);
-    const { data: c } = await sb.from("tutor_contacts").select("tutor_id, phone");
-    setPhones(Object.fromEntries(((c as { tutor_id: string; phone: string }[]) ?? []).map((r) => [r.tutor_id, r.phone])));
-  }, [userId]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const decide = async (id: number, status: "accepted" | "rejected") => {
-    await supabase().from("applications").update({ status }).eq("id", id);
-    load();
-  };
-  const close = async (id: number) => {
-    await supabase().from("tuitions").update({ status: "closed" }).eq("id", id);
-    load();
-  };
+  const stats = tutor
+    ? [[counts[0], t("মোট আবেদন", "Applications")], [counts[1], t("শর্টলিস্টেড", "Shortlisted")], [counts[2], t("চলমান টিউশন", "Active tuitions")]]
+    : [[counts[0], t("খোলা পোস্ট", "Open posts")], [counts[1], t("নতুন আবেদন", "New applicants")], [counts[2], t("চলমান টিউশন", "Active tuitions")]];
 
   return (
-    <section>
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">{t.dash.myTuitions}</h2>
-        <Link href="/post-tuition" className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground">{t.nav.post}</Link>
+    <>
+      <PageHeader title={t(`স্বাগতম, ${user.fullName}`, `Welcome, ${user.fullName}`)}>
+        {tutor ? <Link href="/tuitions" className={buttonVariants({ variant: "accent" })}>{t("মিলে যাওয়া জব দেখুন", "Browse matching jobs")}</Link> : <Link href="/post-tuition" className={buttonVariants({ variant: "accent" })}>{t("নতুন টিউশন পোস্ট", "Post a tuition")}</Link>}
+      </PageHeader>
+
+      <div className="space-y-3">
+        {tutor && !profile && <Task icon={<IdCard />} text={t("শুরু করতে শিক্ষক প্রোফাইল পূরণ করুন।", "Complete your tutor profile to get started.")} href="/dashboard/profile" cta={t("প্রোফাইল", "Profile")} />}
+        {tutor && profile && profile.verificationStatus !== "VERIFIED" && (
+          <Task icon={<IdCard />} text={profile.verificationStatus === "PENDING" ? t("আপনার KYC যাচাই চলছে (২৪–৪৮ ঘণ্টা)।", "Your KYC is under review (24–48h).") : profile.verificationStatus === "REJECTED" ? t(`KYC ফেরত এসেছে: ${profile.verificationNote ?? ""}`, `KYC returned: ${profile.verificationNote ?? ""}`) : t("আবেদন করতে NID ও শিক্ষাগত ডকুমেন্ট জমা দিয়ে যাচাই হোন।", "Submit NID and education documents to get verified and start applying.")} href="/dashboard/kyc" cta="KYC" />
+        )}
+        {toSign.map((a) => (
+          <Task key={a.id} icon={<FileSignature />} text={tutor ? t(`টিউশন #${a.post.number}-এর অফার — চুক্তিতে স্বাক্ষর করুন`, `Offer for tuition #${a.post.number} — review & sign the agreement`) : t(`চুক্তি #${a.agreementNumber} শিক্ষকের স্বাক্ষরের অপেক্ষায়`, `Agreement #${a.agreementNumber} is waiting for the tutor's signature`)} href={`/dashboard/agreements/${a.id}`} cta={t("দেখুন", "Open")} />
+        ))}
+        {dueInvoices > 0 && <Task icon={<Receipt />} text={t(`${formatNumber(dueInvoices, lang)}টি ইনভয়েস বকেয়া`, `${dueInvoices} invoice(s) due`)} href="/dashboard/invoices" cta={t("পরিশোধ", "Pay")} />}
       </div>
-      {items === null ? <p className="mt-4 text-muted-foreground">{t.auth.wait}</p> : items.length === 0 ? <p className="mt-4 text-muted-foreground">{t.dash.noTuitions}</p> : (
-        <div className="mt-4 space-y-4">
-          {items.map((x) => {
-            const list = apps.filter((a) => a.tuition_id === x.id);
-            return (
-              <div key={x.id} className="rounded-2xl border border-border bg-card p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-bold">{title(x)}</p>
-                    <p className="text-sm text-muted-foreground">{t.options.areas[x.area]} · ৳{num(x.salary)}{t.board.perMonth} · {num(x.days)} {t.board.daysWeek}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${x.status === "open" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{x.status === "open" ? t.dash.open : t.dash.closed}</span>
-                    {x.status === "open" && <button onClick={() => close(x.id)} className="rounded-full border border-border px-3 py-1 text-xs hover:bg-muted">{t.dash.close}</button>}
-                  </div>
-                </div>
-                <p className="mt-4 text-sm font-semibold">{t.dash.applicantsList} ({num(list.length)})</p>
-                {list.length === 0 ? <p className="mt-1 text-sm text-muted-foreground">{t.dash.noApplicants}</p> : (
-                  <ul className="mt-2 divide-y divide-border">
-                    {list.map((a) => (
-                      <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
-                        <div>
-                          <Link href={`/tutor?id=${a.tutor_id}`} className="flex items-center gap-1 font-medium hover:text-primary">{a.tutors?.full_name}{a.tutors?.verified && <BadgeCheck className="size-4 text-primary" />}</Link>
-                          <span className="text-muted-foreground">{a.tutors?.institution} · {num(a.tutors?.experience ?? 0)} {t.directory.exp}</span>
-                        </div>
-                        {a.status === "pending" ? (
-                          <div className="flex gap-2">
-                            <button onClick={() => decide(a.id, "accepted")} className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">{t.dash.accept}</button>
-                            <button onClick={() => decide(a.id, "rejected")} className="rounded-full border border-border px-3 py-1 text-xs">{t.dash.reject}</button>
-                          </div>
-                        ) : (
-                          <span className="flex items-center gap-2 text-xs">
-                            <span className={a.status === "accepted" ? "font-semibold text-primary" : "text-muted-foreground"}>{t.dash.status[a.status]}</span>
-                            {a.status === "accepted" && phones[a.tutor_id] && <a href={`tel:${phones[a.tutor_id]}`} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary"><Phone className="size-3" /> {phones[a.tutor_id]}</a>}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        {stats.map(([n, l]) => <Card key={String(l)} className="p-5"><p className="font-display text-3xl font-bold text-primary">{formatNumber(Number(n), lang)}</p><p className="text-sm text-muted-foreground">{l}</p></Card>)}
+      </div>
+      {tutor && profile && profile.creditBalance > 0 && <p className="mt-3 text-sm text-muted-foreground">{t("ক্রেডিট ব্যালান্স", "Credit balance")}: <b>{formatNumber(profile.creditBalance, lang)}</b></p>}
+
+      <Card className="mt-6">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="flex items-center gap-2 font-bold"><Bell className="size-4" /> {t("নোটিফিকেশন", "Notifications")}</h2>
+          {notifications.some((n) => !n.readAt) && <form action={markNotificationsReadAction}><Button size="sm" variant="ghost">{t("সব পড়া হয়েছে", "Mark all read")}</Button></form>}
         </div>
-      )}
-    </section>
-  );
-}
-
-function TutorView({ userId, num }: { userId: string; num: (n: number | string) => string }) {
-  const { t } = useLang();
-  const title = useTitle();
-  const [hasProfile, setHasProfile] = useState<boolean | null>(null);
-  const [apps, setApps] = useState<(App & { tuitions: T | null })[] | null>(null);
-  const [contacts, setContacts] = useState<Record<number, { name: string; phone: string }>>({});
-
-  useEffect(() => {
-    const sb = supabase();
-    sb.from("tutors").select("id").eq("id", userId).maybeSingle().then(({ data }) => setHasProfile(!!data));
-    sb.from("applications").select(`id, status, tuition_id, tutor_id, tuitions(${TUITION_COLS})`).eq("tutor_id", userId).order("created_at", { ascending: false })
-      .then(({ data }) => setApps((data as unknown as (App & { tuitions: T | null })[]) ?? []));
-    sb.from("tuition_contacts").select("tuition_id, name, phone")
-      .then(({ data }) => setContacts(Object.fromEntries(((data as { tuition_id: number; name: string; phone: string }[]) ?? []).map((c) => [c.tuition_id, c]))));
-  }, [userId]);
-
-  return (
-    <section className="space-y-8">
-      {hasProfile === false && (
-        <div className="rounded-2xl border border-dashed border-accent bg-accent/10 p-5">
-          <p className="font-semibold">{t.dash.profileMissing}</p>
-          <Link href="/become-tutor" className="mt-3 inline-block rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground">{t.nav.become}</Link>
-        </div>
-      )}
-      {hasProfile && <Link href="/become-tutor" className="inline-block rounded-full border border-primary px-4 py-2 text-sm font-semibold text-primary">{t.dash.editProfile}</Link>}
-
-      <div>
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">{t.dash.myApplications}</h2>
-          <Link href="/tuitions" className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground">{t.nav.tuitions}</Link>
-        </div>
-        {apps === null ? <p className="mt-4 text-muted-foreground">{t.auth.wait}</p> : apps.length === 0 ? <p className="mt-4 text-muted-foreground">{t.dash.noApplications}</p> : (
-          <ul className="mt-4 space-y-3">
-            {apps.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-sm">
-                <div>
-                  <p className="font-semibold">{a.tuitions ? title(a.tuitions) : `#${a.tuition_id}`}</p>
-                  {a.tuitions && <p className="text-muted-foreground">{t.options.areas[a.tuitions.area]} · ৳{num(a.tuitions.salary)}{t.board.perMonth}</p>}
-                </div>
-                <span className="flex items-center gap-2">
-                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${a.status === "accepted" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{t.dash.status[a.status]}</span>
-                  {a.status === "accepted" && contacts[a.tuition_id] && (
-                    <a href={`tel:${contacts[a.tuition_id].phone}`} className="flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
-                      <Phone className="size-3" /> {contacts[a.tuition_id].name}: {contacts[a.tuition_id].phone}
-                    </a>
-                  )}
-                </span>
+        {notifications.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("এখনো কিছু নেই।", "Nothing yet.")}</p> : (
+          <ul className="divide-y divide-border">
+            {notifications.map((n) => (
+              <li key={n.id} className={`flex items-start justify-between gap-3 px-5 py-3 text-sm ${n.readAt ? "" : "bg-primary/5"}`}>
+                <div className="min-w-0"><p className="font-medium">{n.title}</p>{n.body && <p className="truncate text-muted-foreground">{n.body}</p>}<p className="text-xs text-muted-foreground">{timeAgo(n.createdAt, lang)}</p></div>
+                {n.link && <Link href={n.link} className="shrink-0 text-primary"><ArrowRight className="size-4" /></Link>}
               </li>
             ))}
           </ul>
         )}
-      </div>
-    </section>
+      </Card>
+    </>
+  );
+}
+
+function Task({ icon, text, href, cta }: { icon: React.ReactNode; text: string; href: string; cta: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm">
+      <p className="flex items-center gap-2 [&_svg]:size-4">{icon} {text}</p>
+      <Link href={href} className={buttonVariants({ size: "sm" })}>{cta}</Link>
+    </div>
   );
 }

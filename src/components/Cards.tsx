@@ -1,126 +1,89 @@
-"use client";
+import Link from "next/link";
+import { BadgeCheck, CalendarDays, Clock, GraduationCap, Laptop, MapPin, Star, Users } from "lucide-react";
+import { CURRICULA, GENDER_PREF, gradeLabel, locationLabel, subjectLabel, TUITION_TYPES } from "@/lib/catalog";
+import { formatMoney, formatNumber, makeT, timeAgo, type Lang } from "@/lib/i18n";
+import type { PublicPost } from "@/server/services/posts";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { ApplyDialog, type ApplyViewer } from "./ApplyDialog";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { isConfigured, supabase } from "@/lib/supabase";
-import { useAuth } from "./AuthProvider";
-import { BadgeCheck, CalendarDays, Clock, MapPin, Star, Users } from "lucide-react";
-import { useLang } from "./LanguageProvider";
-import type { Tuition, Tutor } from "@/lib/demo-data";
-
-export function DemoNotice() {
-  const { t } = useLang();
-  if (isConfigured) return null;
-  return (
-    <p className="inline-flex items-center gap-2 rounded-full border border-dashed border-accent bg-accent/10 px-3 py-1 text-xs text-foreground/80">
-      <span className="size-1.5 rounded-full bg-accent" /> {t.demo}
-    </p>
-  );
+export function salaryText(p: { budgetMin: unknown; budgetMax: unknown }, lang: Lang) {
+  const max = formatMoney(String(p.budgetMax), lang);
+  return p.budgetMin ? `${formatMoney(String(p.budgetMin), lang)}–${max.slice(1)}` : max;
 }
 
-export function TuitionCard({ item }: { item: Tuition }) {
-  const { t, num, lang } = useLang();
-  const [applied, setApplied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const { user, profile } = useAuth();
-  const router = useRouter();
-  const o = t.options;
-
-  const apply = async () => {
-    if (!isConfigured) return setApplied(true);
-    if (!user) return router.push("/login?next=/tuitions");
-    if (profile?.role !== "tutor") return setMsg(t.auth.needTutor);
-    setBusy(true);
-    const { error } = await supabase().from("applications").insert({ tuition_id: item.id, tutor_id: user.id });
-    setBusy(false);
-    if (!error || error.code === "23505") return setApplied(true);
-    if (error.code === "23503") return setMsg(t.auth.needProfile);
-    setMsg(`${t.auth.error}: ${error.message}`);
-  };
-  const posted = item.postedDaysAgo === 0 ? (lang === "bn" ? "আজ" : "today") : lang === "bn" ? `${num(item.postedDaysAgo)} দিন আগে` : `${item.postedDaysAgo}d ago`;
-
+/** Job card used on the board and the home page. */
+export function TuitionCard({ post, lang, viewer }: { post: PublicPost; lang: Lang; viewer: ApplyViewer }) {
+  const t = makeT(lang);
+  const TypeIcon = post.isOnline ? Laptop : post.tuitionType === "GROUP_BATCH" ? Users : MapPin;
   return (
-    <article className="flex flex-col rounded-2xl border border-border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <Card className="flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{o.mediums[item.medium]}</span>
-          <h3 className="mt-2 text-base font-bold leading-snug">
-            {o.classes[item.cls]} — {item.subjects.map((s) => o.subjects[s]).join(", ")}
-          </h3>
+        <div className="min-w-0">
+          <div className="flex flex-wrap gap-1.5">
+            <Badge>{TUITION_TYPES[post.tuitionType][lang]}</Badge>
+            <Badge variant="secondary">{CURRICULA[post.curriculum][lang]}</Badge>
+          </div>
+          <Link href={`/tuitions/${post.id}`} className="mt-2 block font-bold leading-snug hover:text-primary">{post.title}</Link>
+          <p className="mt-0.5 text-xs text-muted-foreground">#{formatNumber(post.number, lang)} · {timeAgo(post.createdAt, lang)}</p>
         </div>
         <div className="shrink-0 text-right">
-          <div className="font-display text-lg font-bold text-primary">৳{num(item.salary)}</div>
-          <div className="text-xs text-muted-foreground">{t.board.perMonth}</div>
+          <div className="font-display text-lg font-bold text-primary">{salaryText(post, lang)}</div>
+          <div className="text-xs text-muted-foreground">{t("/মাস", "/month")}{post.salaryNegotiable ? t(" · আলোচনাসাপেক্ষ", " · negotiable") : ""}</div>
         </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {post.subjects.map((s) => <span key={s} className="rounded-full border border-border px-2.5 py-0.5 text-xs">{subjectLabel(s, lang)}</span>)}
       </div>
 
       <ul className="mt-4 grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-        <li className="flex items-center gap-1.5"><MapPin className="size-4 shrink-0" /> {o.areas[item.area]}</li>
-        <li className="flex items-center gap-1.5"><CalendarDays className="size-4 shrink-0" /> {num(item.days)} {t.board.daysWeek}</li>
-        <li className="flex items-center gap-1.5"><Users className="size-4 shrink-0" /> {t.board.gender}: {o.genders[item.gender]}</li>
-        <li className="flex items-center gap-1.5"><Clock className="size-4 shrink-0" /> {t.board.posted} {posted}</li>
+        <li className="flex items-center gap-1.5"><GraduationCap className="size-4 shrink-0" /> {gradeLabel(post.grade, lang)}</li>
+        <li className="flex items-center gap-1.5"><TypeIcon className="size-4 shrink-0" /> <span className="truncate">{locationLabel(post, lang)}</span></li>
+        <li className="flex items-center gap-1.5"><CalendarDays className="size-4 shrink-0" /> {formatNumber(post.daysPerWeek, lang)} {t("দিন/সপ্তাহ", "days/week")}</li>
+        <li className="flex items-center gap-1.5"><Clock className="size-4 shrink-0" /> {formatNumber(post.sessionMinutes, lang)} {t("মিনিট", "min")}</li>
+        {post.genderPreference !== "ANY" && <li className="col-span-2 flex items-center gap-1.5"><Users className="size-4 shrink-0" /> {t("শিক্ষক", "Tutor")}: {GENDER_PREF[post.genderPreference][lang]}</li>}
       </ul>
 
-      <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
-        <span className="text-xs text-muted-foreground">{num(item.applicants + (applied ? 1 : 0))} {t.board.applicants}</span>
-        <button
-          onClick={apply}
-          disabled={applied || busy}
-          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${applied ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:brightness-110"}`}
-        >
-          {applied ? (isConfigured ? t.board.applied.replace(/\s*\((ডেমো|demo)\)/, "") : t.board.applied) : busy ? t.auth.wait : t.board.apply}
-        </button>
+      <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-4 mt-5">
+        <span className="text-xs text-muted-foreground">{formatNumber(post.applicationsCount, lang)} {t("জন আবেদন করেছেন", "applicants")}</span>
+        <ApplyDialog post={{ id: post.id, title: post.title, budgetMax: Number(post.budgetMax), genderPreference: post.genderPreference, status: post.status, guardianId: post.guardianId }} viewer={viewer} />
       </div>
-      {msg && <p className="mt-3 rounded-lg bg-accent/10 px-3 py-2 text-xs">{msg} {msg === t.auth.needProfile && <a href="/become-tutor" className="font-semibold text-primary underline">{t.nav.become}</a>}</p>}
-    </article>
+    </Card>
   );
 }
 
-export function TutorCard({ tutor }: { tutor: Tutor }) {
-  const { t, num, lang } = useLang();
-  const o = t.options;
-  const name = tutor.name[lang];
-  const initials = tutor.name.en.split(" ").map((w) => w[0]).join("");
+export type TutorCardData = {
+  id: string; gender: string; headline: string | null; university: string; department: string | null; experienceYears: number;
+  monthlyRate: unknown; subjects: string[]; preferredCities: string[]; verificationStatus: string; ratingAvg: unknown; ratingCount: number;
+  completedTuitions: number; user: { fullName: string };
+};
 
+export function initials(name: string) {
+  return name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+}
+
+export function TutorCard({ tutor, lang }: { tutor: TutorCardData; lang: Lang }) {
+  const t = makeT(lang);
   return (
-    <article className="flex flex-col rounded-2xl border border-border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <Card className="flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-center gap-3">
-        <div className={`grid size-14 shrink-0 place-items-center rounded-full font-display text-lg font-bold ${tutor.gender === 2 ? "bg-accent/20 text-accent-foreground" : "bg-primary/15 text-primary"}`}>
-          {initials}
-        </div>
+        <div className={`grid size-14 shrink-0 place-items-center rounded-full font-display text-lg font-bold ${tutor.gender === "FEMALE" ? "bg-accent/20 text-accent-foreground" : "bg-primary/15 text-primary"}`}>{initials(tutor.user.fullName)}</div>
         <div className="min-w-0">
-          <h3 className="flex items-center gap-1.5 font-bold">
-            {name}
-            {tutor.verified && <BadgeCheck className="size-4 text-primary" aria-label={t.directory.verified} />}
-          </h3>
-          <p className="truncate text-sm text-muted-foreground">{tutor.institution[lang]}</p>
+          <h3 className="flex items-center gap-1.5 font-bold">{tutor.user.fullName}{tutor.verificationStatus === "VERIFIED" && <BadgeCheck className="size-4 text-primary" aria-label="Verified" />}</h3>
+          <p className="truncate text-sm text-muted-foreground">{tutor.university}{tutor.department ? ` · ${tutor.department}` : ""}</p>
         </div>
       </div>
-
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {tutor.subjects.map((s) => (
-          <span key={s} className="rounded-full bg-muted px-2.5 py-0.5 text-xs">{o.subjects[s]}</span>
-        ))}
+      {tutor.headline && <p className="mt-3 line-clamp-2 text-sm">{tutor.headline}</p>}
+      <div className="mt-3 flex flex-wrap gap-1.5">{tutor.subjects.slice(0, 5).map((s) => <span key={s} className="rounded-full bg-muted px-2.5 py-0.5 text-xs">{subjectLabel(s, lang)}</span>)}</div>
+      <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+        <Star className="size-4 fill-accent text-accent" /> {formatNumber(Number(tutor.ratingAvg).toFixed(1), lang)} ({formatNumber(tutor.ratingCount, lang)}) · {formatNumber(tutor.experienceYears, lang)} {t("বছর", "yrs")} · {formatNumber(tutor.completedTuitions, lang)} {t("টিউশন", "tuitions")}
+      </p>
+      <div className="mt-auto flex items-center justify-between border-t border-border pt-4 mt-5">
+        <span className="text-sm">{tutor.monthlyRate ? <><span className="text-muted-foreground">{t("শুরু ", "from ")}</span><b className="text-primary">{formatMoney(String(tutor.monthlyRate), lang)}</b></> : <span className="text-muted-foreground">{t("সম্মানী আলোচনাসাপেক্ষ", "Rate on request")}</span>}</span>
+        <Link href={`/tutors/${tutor.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>{t("প্রোফাইল", "Profile")}</Link>
       </div>
-
-      <ul className="mt-4 space-y-1.5 text-sm text-muted-foreground">
-        <li className="flex items-center gap-1.5"><MapPin className="size-4" /> {tutor.areas.map((a) => o.areas[a]).join(", ")}</li>
-        <li className="flex items-center gap-1.5">
-          <Star className="size-4 fill-accent text-accent" /> {num(tutor.rating.toFixed(1))} · {num(tutor.reviews)} {t.directory.reviews} · {num(tutor.exp)} {t.directory.exp}
-        </li>
-      </ul>
-
-      <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
-        <div className="text-sm">
-          <span className="text-muted-foreground">{t.directory.from} </span>
-          <span className="font-bold text-primary">৳{num(tutor.salary)}</span>
-          <span className="text-muted-foreground">{t.board.perMonth}</span>
-        </div>
-        <a href={`/tutor?id=${tutor.id}`} className="rounded-full border border-primary px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-primary-foreground">
-          {t.directory.view}
-        </a>
-      </div>
-    </article>
+    </Card>
   );
 }

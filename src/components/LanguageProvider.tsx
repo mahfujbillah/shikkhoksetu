@@ -1,48 +1,38 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { dict, type Dict, type Lang } from "@/lib/i18n";
+import { createContext, useContext, useTransition } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { makeT, type Lang, type T } from "@/lib/i18n";
+import { setLanguageAction } from "@/server/actions/account";
+import { cn } from "@/lib/utils";
 
-type Ctx = { lang: Lang; t: Dict; setLang: (l: Lang) => void; num: (n: number | string) => string };
+const Ctx = createContext<{ lang: Lang; t: T }>({ lang: "bn", t: makeT("bn") });
 
-const LangContext = createContext<Ctx | null>(null);
-
-const bnDigits = "০১২৩৪৫৬৭৮৯";
-export function toBn(n: number | string) {
-  return String(n).replace(/\d/g, (d) => bnDigits[Number(d)]);
+export function LangProvider({ lang, children }: { lang: Lang; children: React.ReactNode }) {
+  return <Ctx.Provider value={{ lang, t: makeT(lang) }}>{children}</Ctx.Provider>;
 }
 
-export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("bn");
+export const useT = () => useContext(Ctx);
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("lang");
-      if (saved === "bn" || saved === "en") setLangState(saved);
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.lang = lang;
-  }, [lang]);
-
-  const setLang = useCallback((l: Lang) => {
-    setLangState(l);
-    try {
-      localStorage.setItem("lang", l);
-    } catch {}
-  }, []);
-
-  const num = useCallback(
-    (n: number | string) => (lang === "bn" ? toBn(typeof n === "number" ? n.toLocaleString("en-IN") : n) : typeof n === "number" ? n.toLocaleString("en-IN") : n),
-    [lang],
+export function LangToggle() {
+  const { lang } = useT();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const [pending, start] = useTransition();
+  const path = `${pathname}${search.size ? `?${search}` : ""}`;
+  return (
+    <div className={cn("flex rounded-full border border-border p-0.5 text-xs font-semibold", pending && "opacity-60")}>
+      {(["bn", "en"] as const).map((l) => (
+        <button
+          key={l}
+          type="button"
+          aria-pressed={lang === l}
+          onClick={() => start(() => setLanguageAction(l, path))}
+          className={cn("rounded-full px-2.5 py-1 transition", lang === l ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+        >
+          {l === "bn" ? "বাং" : "EN"}
+        </button>
+      ))}
+    </div>
   );
-
-  return <LangContext.Provider value={{ lang, t: dict[lang] as Dict, setLang, num }}>{children}</LangContext.Provider>;
-}
-
-export function useLang() {
-  const ctx = useContext(LangContext);
-  if (!ctx) throw new Error("useLang must be used inside LanguageProvider");
-  return ctx;
 }

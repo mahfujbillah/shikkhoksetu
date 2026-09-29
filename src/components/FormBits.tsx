@@ -1,39 +1,100 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { CheckCircle2, Info, LogIn } from "lucide-react";
-import { useLang } from "./LanguageProvider";
-import { useAuth, type Role } from "./AuthProvider";
-import { isConfigured } from "@/lib/supabase";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
+import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import type { ActionResult } from "@/server/errors";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/input";
+import { useT } from "./LanguageProvider";
+import { cn } from "@/lib/utils";
 
-export function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
+type ActionFn = (prev: ActionResult<unknown> | null, fd: FormData) => Promise<ActionResult<unknown>>;
+
+/**
+ * <ActionForm> — progressive-enhancement form bound to a Server Action via useActionState.
+ * Children can be a render function to read field errors: {(state) => …}.
+ */
+export function ActionForm({
+  action, children, className, onSuccess, resetOnSuccess, hideMessage,
+}: {
+  action: ActionFn;
+  children: React.ReactNode | ((state: ActionResult<unknown> | null) => React.ReactNode);
+  className?: string;
+  onSuccess?: (s: ActionResult<unknown>) => void;
+  resetOnSuccess?: boolean;
+  hideMessage?: boolean;
+}) {
+  const [state, formAction] = useActionState(action, null);
+  const ref = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (state?.ok) {
+      if (resetOnSuccess) ref.current?.reset();
+      onSuccess?.(state);
+    }
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <label className={`block ${full ? "sm:col-span-2" : ""}`}>
-      <span className="mb-1.5 block text-sm font-medium">{label}</span>
-      {children}
-    </label>
+    <form ref={ref} action={formAction} className={className} noValidate>
+      {typeof children === "function" ? children(state) : children}
+      {!hideMessage && <FormMessage state={state} />}
+    </form>
   );
 }
 
-/** Multi-select pills. Selected indexes are submitted as repeated hidden inputs named `name`. */
-export function Chips({ options, name, offset = 0, initial = [] }: { options: string[]; name: string; offset?: number; initial?: number[] }) {
-  const [picked, setPicked] = useState<number[]>(initial);
-  useEffect(() => setPicked(initial), [initial.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+export function FormMessage({ state }: { state: ActionResult<unknown> | null }) {
+  if (!state) return null;
+  if (state.ok && !state.message) return null;
+  return (
+    <p role="status" className={cn("mt-3 flex items-start gap-2 rounded-xl px-3 py-2 text-sm", state.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
+      {state.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <AlertCircle className="mt-0.5 size-4 shrink-0" />}
+      <span>{state.ok ? state.message : state.error}</span>
+    </p>
+  );
+}
+
+export function SubmitButton({ children, pendingText, ...props }: React.ComponentProps<typeof Button> & { pendingText?: string }) {
+  const { pending } = useFormStatus();
+  const { t } = useT();
+  return (
+    <Button type="submit" disabled={pending || props.disabled} {...props}>
+      {pending && <Loader2 className="animate-spin" />}
+      {pending ? pendingText ?? t("অপেক্ষা করুন…", "Please wait…") : children}
+    </Button>
+  );
+}
+
+export function FieldError({ state, name }: { state: ActionResult<unknown> | null; name: string }) {
+  const msg = state && !state.ok ? state.fieldErrors?.[name]?.[0] : undefined;
+  return msg ? <p className="mt-1 text-xs text-destructive">{msg}</p> : null;
+}
+
+export function Field({ label, name, state, children, className, hint }: { label: string; name?: string; state?: ActionResult<unknown> | null; children: React.ReactNode; className?: string; hint?: string }) {
+  return (
+    <div className={className}>
+      <Label htmlFor={name}>{label}</Label>
+      {children}
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      {name && state !== undefined && <FieldError state={state} name={name} />}
+    </div>
+  );
+}
+
+/** Multi-select pill group; submits each selected value as a repeated field. */
+export function Chips({ name, options, defaultValue = [], max }: { name: string; options: { value: string; label: string }[]; defaultValue?: string[]; max?: number }) {
+  const [picked, setPicked] = useState<string[]>(defaultValue);
   return (
     <div className="flex flex-wrap gap-2">
-      {options.map((o, i) => {
-        const v = i + offset;
-        const on = picked.includes(v);
+      {options.map((o) => {
+        const on = picked.includes(o.value);
         return (
           <button
+            key={o.value}
             type="button"
-            key={i}
-            onClick={() => setPicked(on ? picked.filter((p) => p !== v) : [...picked, v])}
-            className={`rounded-full border px-3 py-1.5 text-sm transition ${on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary"}`}
             aria-pressed={on}
+            onClick={() => setPicked(on ? picked.filter((p) => p !== o.value) : max && picked.length >= max ? picked : [...picked, o.value])}
+            className={cn("rounded-full border px-3 py-1.5 text-sm transition", on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary")}
           >
-            {o}
+            {o.label}
           </button>
         );
       })}
@@ -42,75 +103,14 @@ export function Chips({ options, name, offset = 0, initial = [] }: { options: st
   );
 }
 
-export const nums = (fd: FormData, key: string) => fd.getAll(key).map(Number);
-
-type ShellProps = {
-  title: string;
-  desc: string;
-  submit: string;
-  children: React.ReactNode;
-  /** Role required to use the form once the backend is on. */
-  role?: Role;
-  gateText?: string;
-  /** Return an error message, or null on success. */
-  onSubmit?: (fd: FormData) => Promise<string | null>;
-  doneText?: string;
-};
-
-export function FormShell({ title, desc, submit, children, role, gateText, onSubmit, doneText }: ShellProps) {
-  const { t } = useLang();
-  const { user, profile, loading } = useAuth();
-  const [done, setDone] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const blocked = isConfigured && role && !loading && (!user || (profile && profile.role !== role && profile.role !== "admin"));
-
+/** One-click server action button (shortlist, reject, verify…) with inline error. */
+export function ActionButton({ action, fields, children, confirm, ...btn }: { action: ActionFn; fields: Record<string, string>; confirm?: string } & React.ComponentProps<typeof Button>) {
+  const [state, formAction] = useActionState(action, null);
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12">
-      <h1 className="font-display text-4xl font-bold">{title}</h1>
-      <p className="mt-2 text-muted-foreground">{desc}</p>
-      {!isConfigured && (
-        <p className="mt-4 flex items-start gap-2 rounded-xl border border-dashed border-accent bg-accent/10 px-3 py-2 text-sm">
-          <Info className="mt-0.5 size-4 shrink-0" /> {t.formNote}
-        </p>
-      )}
-
-      {blocked ? (
-        <div className="mt-8 flex flex-col items-center rounded-2xl border border-border bg-card p-10 text-center">
-          <LogIn className="size-10 text-primary" />
-          <p className="mt-4 font-semibold">{gateText ?? t.auth.needLogin}</p>
-          <Link href={`/login?next=${typeof window !== "undefined" ? window.location.pathname : "/"}`} className="mt-5 rounded-full bg-primary px-6 py-2.5 font-semibold text-primary-foreground">
-            {t.auth.goLogin}
-          </Link>
-        </div>
-      ) : done ? (
-        <div className="mt-8 flex flex-col items-center rounded-2xl border border-border bg-card p-10 text-center">
-          <CheckCircle2 className="size-12 text-primary" />
-          <p className="mt-4 font-semibold">{isConfigured ? (doneText ?? t.saved) : t.formDone}</p>
-          {isConfigured && <Link href="/dashboard" className="mt-5 font-semibold text-primary underline">{t.dash.title}</Link>}
-        </div>
-      ) : (
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!isConfigured || !onSubmit) return setDone(true);
-            setBusy(true);
-            setError("");
-            const err = await onSubmit(new FormData(e.currentTarget));
-            setBusy(false);
-            if (err) setError(err);
-            else setDone(true);
-          }}
-          className="mt-8 grid gap-5 rounded-2xl border border-border bg-card p-6 sm:grid-cols-2"
-        >
-          {children}
-          {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 sm:col-span-2">{t.auth.error}: {error}</p>}
-          <button type="submit" disabled={busy} className="rounded-full bg-primary px-6 py-3 font-semibold text-primary-foreground transition hover:brightness-110 disabled:opacity-60 sm:col-span-2">
-            {busy ? t.auth.wait : submit}
-          </button>
-        </form>
-      )}
-    </div>
+    <form action={formAction} onSubmit={(e) => { if (confirm && !window.confirm(confirm)) e.preventDefault(); }} className="inline-flex flex-col items-start">
+      {Object.entries(fields).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+      <SubmitButton {...btn}>{children}</SubmitButton>
+      {state && !state.ok && <span className="mt-1 max-w-56 text-xs text-destructive">{state.error}</span>}
+    </form>
   );
 }
