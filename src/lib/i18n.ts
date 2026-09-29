@@ -23,6 +23,7 @@ export function formatDate(d: Date | string, lang: Lang, opts: Intl.DateTimeForm
 export function timeAgo(d: Date | string, lang: Lang) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(d).getTime()) / 60000));
   const t = makeT(lang);
+  if (mins < 1) return t("এইমাত্র", "just now");
   if (mins < 60) return t(`${formatNumber(mins, lang)} মিনিট আগে`, `${mins}m ago`);
   const h = Math.round(mins / 60);
   if (h < 24) return t(`${formatNumber(h, lang)} ঘণ্টা আগে`, `${h}h ago`);

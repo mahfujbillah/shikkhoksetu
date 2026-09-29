@@ -130,3 +130,21 @@ export function anyAreaLabel(area: string, lang: keyof Bi) {
   for (const c of CITIES) { const a = code2(c.areas, area); if (a) return a[lang]; }
   return area;
 }
+
+/**
+ * Medium → curriculum/board → class hierarchy used by the job-board filters (Caretutors-style).
+ * `curricula` are the DB enum values a medium covers; `grades` are the classes that make sense for it.
+ */
+export type Medium = Item & { curricula: string[]; grades: string[] };
+const GENERAL_GRADES = ["PRE_SCHOOL", "CLASS_1_5", "CLASS_6_8", "SSC", "HSC", "ADMISSION"];
+export const MEDIUMS: Medium[] = [
+  { code: "BANGLA", bn: "বাংলা মাধ্যম", en: "Bangla Medium", curricula: ["BANGLA_MEDIUM"], grades: GENERAL_GRADES },
+  { code: "ENGLISH_VERSION", bn: "ইংলিশ ভার্সন", en: "English Version", curricula: ["ENGLISH_VERSION"], grades: GENERAL_GRADES },
+  { code: "ENGLISH_MEDIUM", bn: "ইংরেজি মাধ্যম", en: "English Medium", curricula: ["ENGLISH_MEDIUM_CAMBRIDGE", "ENGLISH_MEDIUM_EDEXCEL", "INTERNATIONAL_BACCALAUREATE"], grades: ["PRE_SCHOOL", "CLASS_1_5", "CLASS_6_8", "O_LEVEL", "A_LEVEL", "ADMISSION"] },
+  { code: "MADRASAH", bn: "মাদ্রাসা", en: "Madrasah", curricula: ["MADRASAH_ALIA", "MADRASAH_QAWMI"], grades: [...GENERAL_GRADES, "QURAN_ARABIC"] },
+  { code: "OTHER", bn: "অন্যান্য / দক্ষতা", en: "Other / Skills", curricula: ["OTHER"], grades: GRADES.map((g) => g.code) },
+];
+export const mediumOfCurriculum = (c: string) => MEDIUMS.find((m) => m.curricula.includes(c));
+
+/** Applications accepted per tuition post before it shows as full ("10/10 applied"). */
+export const MAX_APPLICANTS = 10;

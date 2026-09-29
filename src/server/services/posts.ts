@@ -5,6 +5,7 @@ import type { Curriculum, TuitionType } from "@/generated/prisma/enums";
 import type { SessionUser } from "../auth";
 import { DomainError } from "../errors";
 import type { CreatePostInput } from "../validation";
+import { curriculaFor, type BoardParams } from "@/lib/board-params";
 import { audit, getSettings, lockRow, transaction } from "./common";
 
 /** Guardian publishes a tuition requirement. Their phone is saved to the profile (private until hire). */
@@ -46,53 +47,45 @@ export async function createTuitionPost(user: SessionUser, input: CreatePostInpu
   });
 }
 
-export type BoardFilters = {
-  q?: string;
-  subject?: string;
-  grade?: string;
-  curriculum?: Curriculum;
-  type?: TuitionType;
-  city?: string;
-  area?: string;
-  online?: boolean;
-  minSalary?: number;
-  maxSalary?: number;
-  gender?: "MALE" | "FEMALE";
-  sort?: "new" | "salary";
-  page?: number;
-};
+export type { BoardParams as BoardFilters } from "@/lib/board-params";
 
-export const PAGE_SIZE = 12;
+/** 10 jobs per page, as on Caretutors. */
+export const PAGE_SIZE = 10;
 
-/** Public job board query — never selects private columns (addressLine, guardian phone). */
-export async function listOpenTuitions(f: BoardFilters) {
-  const where: Prisma.TuitionPostWhereInput = { status: { in: ["OPEN", "SHORTLISTED"] } };
-  if (f.subject) where.subjects = { has: f.subject };
-  if (f.grade) where.grade = f.grade;
-  if (f.curriculum) where.curriculum = f.curriculum;
-  if (f.type) where.tuitionType = f.type;
-  if (f.online) where.isOnline = true;
-  else if (f.city) {
-    where.city = f.city;
-    if (f.area) where.area = f.area;
+function boardWhere(f: BoardParams): Prisma.TuitionPostWhereInput {
+  const and: Prisma.TuitionPostWhereInput[] = [{ status: { in: ["OPEN", "SHORTLISTED"] } }];
+  if (f.subject) and.push({ subjects: { has: f.subject } });
+  const curricula = curriculaFor(f);
+  if (curricula) and.push({ curriculum: { in: curricula as Curriculum[] } });
+  if (f.grade) and.push({ grade: f.grade });
+  if (f.type) and.push({ tuitionType: f.type as TuitionType });
+  if (f.online) and.push({ isOnline: true });
+  else if (f.city) and.push({ city: f.city, ...(f.area ? { area: f.area } : {}) });
+  if (f.min) and.push({ budgetMax: { gte: f.min } });
+  if (f.max) and.push({ OR: [{ budgetMin: { lte: f.max } }, { budgetMin: null, budgetMax: { lte: f.max } }] });
+  // A tutor filtering by their own gender sees jobs that accept them (ANY or that gender).
+  if (f.tgender) and.push({ genderPreference: { in: ["ANY", f.tgender] } });
+  if (f.q) {
+    const n = /^#?\d+$/.test(f.q) ? Number(f.q.replace("#", "")) : null;
+    and.push({ OR: [{ title: { contains: f.q, mode: "insensitive" } }, { requirements: { contains: f.q, mode: "insensitive" } }, ...(n ? [{ number: n }] : [])] });
   }
-  if (f.minSalary) where.budgetMax = { gte: f.minSalary };
-  if (f.maxSalary) where.OR = [{ budgetMin: { lte: f.maxSalary } }, { budgetMin: null, budgetMax: { lte: f.maxSalary } }];
-  if (f.gender) where.genderPreference = { in: ["ANY", f.gender] };
-  if (f.q) where.AND = [{ OR: [{ title: { contains: f.q, mode: "insensitive" } }, { requirements: { contains: f.q, mode: "insensitive" } }] }];
+  return { AND: and };
+}
 
-  const page = Math.max(1, f.page ?? 1);
-  const [items, total] = await Promise.all([
-    db.tuitionPost.findMany({
-      where,
-      orderBy: f.sort === "salary" ? [{ budgetMax: "desc" }, { createdAt: "desc" }] : { createdAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      select: PUBLIC_POST_SELECT,
-    }),
-    db.tuitionPost.count({ where }),
-  ]);
-  return { items, total, page, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
+/**
+ * Public job board query — server-side pagination with take/skip, never selects private columns
+ * (addressLine, guardian phone). An out-of-range ?page= is clamped to the last page.
+ */
+export async function listOpenTuitions(f: BoardParams) {
+  const where = boardWhere(f);
+  const orderBy: Prisma.TuitionPostOrderByWithRelationInput[] = f.sort === "salary" ? [{ budgetMax: "desc" }, { createdAt: "desc" }] : [{ createdAt: "desc" }, { number: "desc" }];
+  const requested = Math.max(1, f.page ?? 1);
+  const fetchPage = (page: number) => db.tuitionPost.findMany({ where, orderBy, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, select: PUBLIC_POST_SELECT });
+  let [items, total] = await Promise.all([fetchPage(requested), db.tuitionPost.count({ where })]);
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  let page = requested;
+  if (requested > pages) { page = pages; items = total ? await fetchPage(pages) : []; }
+  return { items, total, page, pages, pageSize: PAGE_SIZE };
 }
 
 export const PUBLIC_POST_SELECT = {

@@ -13,6 +13,7 @@ export const ERROR_MESSAGES = {
   JOB_CLOSED: ["এই টিউশনে আর আবেদন নেওয়া হচ্ছে না।", "This tuition is no longer accepting applications."],
   OWN_JOB: ["নিজের পোস্টে আবেদন করা যায় না।", "You cannot apply to your own post."],
   DUPLICATE_APPLICATION: ["আপনি এই টিউশনে আগেই আবেদন করেছেন।", "You have already applied to this tuition."],
+  APPLICATIONS_FULL: ["এই টিউশনে সর্বোচ্চ সংখ্যক আবেদন জমা পড়ে গেছে।", "This tuition has already received the maximum number of applications."],
   GENDER_MISMATCH: ["অভিভাবক ভিন্ন লিঙ্গের শিক্ষক চেয়েছেন।", "The guardian asked for a tutor of a different gender."],
   INSUFFICIENT_CREDITS: ["আবেদনের জন্য যথেষ্ট ক্রেডিট নেই।", "Not enough credits to apply."],
   SHORTLIST_FULL: ["শর্টলিস্ট পূর্ণ হয়ে গেছে।", "The shortlist is full."],

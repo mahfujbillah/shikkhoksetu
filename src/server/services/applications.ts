@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "../auth";
 import { DomainError, isUniqueViolation } from "../errors";
 import type { ApplyInput } from "../validation";
+import { MAX_APPLICANTS } from "@/lib/catalog";
 import { audit, getSettings, lockRow, notify, transaction, type Tx } from "./common";
 
 /**
@@ -13,8 +14,9 @@ import { audit, getSettings, lockRow, notify, transaction, type Tx } from "./com
  *  2. tutor profile exists and is VERIFIED                   → PROFILE_REQUIRED / TUTOR_NOT_VERIFIED
  *  3. job exists, is OPEN/SHORTLISTED, not the tutor's own   → JOB_CLOSED / OWN_JOB
  *  4. gender preference respected                            → GENDER_MISMATCH
- *  5. not already applied                                    → DUPLICATE_APPLICATION
- *  6. enough credits when monetisation uses credits          → INSUFFICIENT_CREDITS
+ *  5. fewer than MAX_APPLICANTS live applications            → APPLICATIONS_FULL
+ *  6. not already applied                                    → DUPLICATE_APPLICATION
+ *  7. enough credits when monetisation uses credits          → INSUFFICIENT_CREDITS
  *
  * Concurrency:
  *  • The job row is locked FOR UPDATE, so a job that is being confirmed/cancelled at the same instant
@@ -49,11 +51,13 @@ export async function applyToTuition(user: SessionUser, input: ApplyInput) {
       if (!(await lockRow(tx, "tuition_posts", input.postId))) throw new DomainError("NOT_FOUND");
       const post = await tx.tuitionPost.findUniqueOrThrow({
         where: { id: input.postId },
-        select: { id: true, number: true, status: true, guardianId: true, genderPreference: true, title: true },
+        select: { id: true, number: true, status: true, guardianId: true, genderPreference: true, title: true, applicationsCount: true },
       });
       if (post.status !== "OPEN" && post.status !== "SHORTLISTED") throw new DomainError("JOB_CLOSED");
       if (post.guardianId === user.id) throw new DomainError("OWN_JOB");
       if (post.genderPreference !== "ANY" && post.genderPreference !== profile.gender) throw new DomainError("GENDER_MISMATCH");
+      // Read under the row lock, so two tutors racing for the last slot can't both get in.
+      if (post.applicationsCount >= MAX_APPLICANTS) throw new DomainError("APPLICATIONS_FULL");
 
       const application = await tx.tuitionApplication.create({
         data: {
@@ -76,9 +80,9 @@ export async function applyToTuition(user: SessionUser, input: ApplyInput) {
         await tx.creditLedger.create({ data: { tutorProfileId: profile.id, delta: -creditCost, reason: `APPLY:${application.id}` } });
       }
 
-      await tx.tuitionPost.update({ where: { id: post.id }, data: { applicationsCount: { increment: 1 } } });
+      const updated = await tx.tuitionPost.update({ where: { id: post.id }, data: { applicationsCount: { increment: 1 } }, select: { applicationsCount: true } });
       await notify(tx, post.guardianId, "NEW_APPLICATION", `New applicant for tuition #${post.number}`, `${user.fullName} applied to “${post.title}”.`, `/dashboard/jobs/${post.id}/applicants`);
-      return application;
+      return { ...application, applicationsCount: updated.applicationsCount };
     });
   } catch (e) {
     if (isUniqueViolation(e)) throw new DomainError("DUPLICATE_APPLICATION");
@@ -100,6 +104,8 @@ export async function withdrawApplication(user: SessionUser, applicationId: stri
     });
     if (res.count !== 1) throw new DomainError("INVALID_STATE");
     if (before === "SHORTLISTED") await releaseShortlistSlot(tx, app.postId);
+    // applicationsCount is the *live* count shown on the board ("4/10 applied") — a withdrawal frees a slot.
+    await tx.tuitionPost.updateMany({ where: { id: app.postId, applicationsCount: { gt: 0 } }, data: { applicationsCount: { decrement: 1 } } });
   });
 }
 

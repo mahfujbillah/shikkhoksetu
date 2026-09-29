@@ -46,8 +46,8 @@ export default async function TuitionDetail({ params }: PageProps<"/tuitions/[id
         </dl>
         {post.requirements && (<div className="mt-6 border-t border-border pt-6"><h2 className="font-semibold">{t("অভিভাবকের প্রত্যাশা", "Guardian's requirements")}</h2><p className="mt-2 whitespace-pre-line text-muted-foreground">{post.requirements}</p></div>)}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6">
-          <p className="text-sm text-muted-foreground">{formatNumber(post.applicationsCount, lang)} {t("জন আবেদন করেছেন · ঠিকানা ও ফোন নম্বর চুক্তি স্বাক্ষরের পর দেখা যাবে", "applicants · address & phone are shared after the agreement is signed")}</p>
-          <ApplyDialog post={{ id: post.id, title: post.title, budgetMax: Number(post.budgetMax), genderPreference: post.genderPreference, status: post.status, guardianId: post.guardianId }} viewer={viewer} />
+          <p className="text-sm text-muted-foreground">{t("ঠিকানা ও ফোন নম্বর চুক্তি স্বাক্ষরের পর দেখা যাবে", "Address & phone are shared after the agreement is signed")}</p>
+          <div className="w-full sm:w-auto sm:min-w-80"><ApplyDialog post={{ id: post.id, title: post.title, budgetMax: Number(post.budgetMax), genderPreference: post.genderPreference, status: post.status, guardianId: post.guardianId, applicationsCount: post.applicationsCount }} viewer={viewer} showMeter /></div>
         </div>
       </Card>
     </div>

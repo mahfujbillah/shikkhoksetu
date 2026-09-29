@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BadgeCheck, CalendarDays, Clock, GraduationCap, Laptop, MapPin, Star, Users } from "lucide-react";
+import { BadgeCheck, CalendarDays, Clock, GraduationCap, Home, Laptop, MapPin, Star, UserRound, Users } from "lucide-react";
 import { CURRICULA, GENDER_PREF, gradeLabel, locationLabel, subjectLabel, TUITION_TYPES } from "@/lib/catalog";
 import { formatMoney, formatNumber, makeT, timeAgo, type Lang } from "@/lib/i18n";
 import type { PublicPost } from "@/server/services/posts";
@@ -13,20 +13,41 @@ export function salaryText(p: { budgetMin: unknown; budgetMax: unknown }, lang: 
   return p.budgetMin ? `${formatMoney(String(p.budgetMin), lang)}–${max.slice(1)}` : max;
 }
 
-/** Job card used on the board and the home page. */
+function postedAgo(d: Date, lang: Lang) {
+  const t = makeT(lang);
+  return t(`পোস্ট করা হয়েছে ${timeAgo(d, lang)}`, `Posted ${timeAgo(d, lang)}`);
+}
+
+/**
+ * Job card used on the board and the home page (Caretutors-style):
+ * Job ID · posted time · mode · class & curriculum · location · days/week · student & preferred tutor gender · live "x/10 applied".
+ */
 export function TuitionCard({ post, lang, viewer }: { post: PublicPost; lang: Lang; viewer: ApplyViewer }) {
   const t = makeT(lang);
-  const TypeIcon = post.isOnline ? Laptop : post.tuitionType === "GROUP_BATCH" ? Users : MapPin;
+  const online = post.isOnline || post.tuitionType === "ONLINE_ONE_TO_ONE";
+  const ModeIcon = online ? Laptop : post.tuitionType === "GROUP_BATCH" ? Users : Home;
+  const studentGender = post.studentGender ? (post.studentGender === "FEMALE" ? t("ছাত্রী", "Female") : t("ছাত্র", "Male")) : t("উল্লেখ নেই", "Not specified");
+  const facts: [React.ElementType, string, string][] = [
+    [GraduationCap, t("শ্রেণি", "Class"), `${gradeLabel(post.grade, lang)} · ${CURRICULA[post.curriculum][lang]}`],
+    [MapPin, t("লোকেশন", "Location"), locationLabel(post, lang)],
+    [CalendarDays, t("সপ্তাহে", "Days/week"), `${formatNumber(post.daysPerWeek, lang)} ${t("দিন", "days")} · ${formatNumber(post.sessionMinutes, lang)} ${t("মিনিট", "min")}`],
+    [UserRound, t("শিক্ষার্থী", "Student"), `${studentGender}${post.studentsCount > 1 ? ` · ${formatNumber(post.studentsCount, lang)} ${t("জন", "students")}` : ""}`],
+    [Users, t("পছন্দের শিক্ষক", "Preferred tutor"), GENDER_PREF[post.genderPreference][lang]],
+  ];
   return (
     <Card className="flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="rounded-md bg-muted px-2 py-0.5 font-mono font-semibold text-foreground/80">{t("জব আইডি", "Job ID")}: {formatNumber(post.number, lang)}</span>
+        <time dateTime={post.createdAt.toISOString()} title={post.createdAt.toISOString()} className="flex items-center gap-1 text-muted-foreground"><Clock className="size-3.5" /> {postedAgo(post.createdAt, lang)}</time>
+      </div>
+
+      <div className="mt-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap gap-1.5">
-            <Badge>{TUITION_TYPES[post.tuitionType][lang]}</Badge>
-            <Badge variant="secondary">{CURRICULA[post.curriculum][lang]}</Badge>
+            <Badge variant={online ? "default" : "secondary"}><ModeIcon /> {online ? t("অনলাইন", "Online") : post.tuitionType === "GROUP_BATCH" ? TUITION_TYPES.GROUP_BATCH[lang] : t("হোম", "Home")}</Badge>
+            {post.status === "SHORTLISTED" && <Badge variant="warning">{t("শর্টলিস্ট চলছে", "Shortlisting")}</Badge>}
           </div>
           <Link href={`/tuitions/${post.id}`} className="mt-2 block font-bold leading-snug hover:text-primary">{post.title}</Link>
-          <p className="mt-0.5 text-xs text-muted-foreground">#{formatNumber(post.number, lang)} · {timeAgo(post.createdAt, lang)}</p>
         </div>
         <div className="shrink-0 text-right">
           <div className="font-display text-lg font-bold text-primary">{salaryText(post, lang)}</div>
@@ -38,17 +59,18 @@ export function TuitionCard({ post, lang, viewer }: { post: PublicPost; lang: La
         {post.subjects.map((s) => <span key={s} className="rounded-full border border-border px-2.5 py-0.5 text-xs">{subjectLabel(s, lang)}</span>)}
       </div>
 
-      <ul className="mt-4 grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-        <li className="flex items-center gap-1.5"><GraduationCap className="size-4 shrink-0" /> {gradeLabel(post.grade, lang)}</li>
-        <li className="flex items-center gap-1.5"><TypeIcon className="size-4 shrink-0" /> <span className="truncate">{locationLabel(post, lang)}</span></li>
-        <li className="flex items-center gap-1.5"><CalendarDays className="size-4 shrink-0" /> {formatNumber(post.daysPerWeek, lang)} {t("দিন/সপ্তাহ", "days/week")}</li>
-        <li className="flex items-center gap-1.5"><Clock className="size-4 shrink-0" /> {formatNumber(post.sessionMinutes, lang)} {t("মিনিট", "min")}</li>
-        {post.genderPreference !== "ANY" && <li className="col-span-2 flex items-center gap-1.5"><Users className="size-4 shrink-0" /> {t("শিক্ষক", "Tutor")}: {GENDER_PREF[post.genderPreference][lang]}</li>}
-      </ul>
+      <dl className="mt-4 grid gap-1.5 text-sm">
+        {facts.map(([Icon, label, value]) => (
+          <div key={label} className="flex items-start gap-2">
+            <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <dt className="w-28 shrink-0 text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
 
-      <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-4 mt-5">
-        <span className="text-xs text-muted-foreground">{formatNumber(post.applicationsCount, lang)} {t("জন আবেদন করেছেন", "applicants")}</span>
-        <ApplyDialog post={{ id: post.id, title: post.title, budgetMax: Number(post.budgetMax), genderPreference: post.genderPreference, status: post.status, guardianId: post.guardianId }} viewer={viewer} />
+      <div className="mt-auto border-t border-border pt-4 [&]:mt-5">
+        <ApplyDialog showMeter post={{ id: post.id, title: post.title, budgetMax: Number(post.budgetMax), genderPreference: post.genderPreference, status: post.status, guardianId: post.guardianId, applicationsCount: post.applicationsCount }} viewer={viewer} />
       </div>
     </Card>
   );

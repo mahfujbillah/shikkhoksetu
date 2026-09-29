@@ -180,6 +180,7 @@ export async function adminSetApplicationStatus(actor: SessionUser, applicationI
     if (liveAg) throw new DomainError("ALREADY_HIRING");
 
     await tx.tuitionApplication.update({ where: { id: a.id }, data: to === "REJECTED" ? { status: "REJECTED", rejectedAt: new Date(), rejectionReason: reason || "Removed by admin" } : { status: "PENDING", rejectedAt: null, rejectionReason: null, shortlistedAt: null } });
+    if (a.status === "WITHDRAWN") await tx.tuitionPost.update({ where: { id: a.postId }, data: { applicationsCount: { increment: 1 } } });
     if (a.status === "SHORTLISTED") {
       const left = a.post.shortlistedCount - 1;
       await tx.tuitionPost.update({ where: { id: a.postId }, data: { shortlistedCount: Math.max(0, left), ...(left <= 0 && a.post.status === "SHORTLISTED" ? { status: "OPEN" } : {}) } });

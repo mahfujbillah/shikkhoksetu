@@ -54,6 +54,8 @@ Parent LMS ──POST /api/lms/progress (Bearer LMS_API_KEY)──▶ progress s
 - **Duplicate application (double-click, two tabs).** The unique index `(postId, tutorProfileId)` blocks it. The losing request gets `DUPLICATE_APPLICATION`, and its counter update and credit spend roll back with it.
 - **Shortlist cap under concurrency.** Locked with `SELECT … FOR UPDATE` on the job row, plus a `CHECK (shortlistedCount <= maxShortlist)` constraint.
 - **Double hire.** Job row lock plus a partial unique index. Only one agreement per job can be `PENDING_SIGNATURES` or `ACTIVE`.
+- **Applicant cap.** A job accepts at most `MAX_APPLICANTS` (10) live applications, shown on the card as "4/10 applied". The count is read under the job-row lock, so two tutors can't both take the last slot. A withdrawal frees a slot.
+- **Job board URLs.** Filters live in the query string as lowercase slugs (`/tuitions?city=dhaka&area=mirpur&medium=english-medium`). The page redirects any non-canonical URL (upper case, an area outside the chosen city, `?page=` out of range) to the canonical one. Pagination is server-side, 10 per page.
 - **Late application to a filled job.** The job's status is re-read under the lock.
 - **Credits.** Spent with a conditional `UPDATE … WHERE creditBalance >= cost`, and the balance has a `CHECK (creditBalance >= 0)` constraint.
 - **Payments.** Callbacks are re-validated with the gateway's own validation API. Amount, currency and `tran_id` are compared with our transaction. Settlement is idempotent (`status IN (ISSUED, OVERDUE)`), and there is at most one commission invoice per agreement.

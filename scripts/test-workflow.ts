@@ -6,7 +6,9 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/server/auth";
 import { DomainError } from "@/server/errors";
-import { createTuitionPost } from "@/server/services/posts";
+import { createTuitionPost, listOpenTuitions } from "@/server/services/posts";
+import { MAX_APPLICANTS } from "@/lib/catalog";
+import { parseBoardParams, toBoardQuery } from "@/lib/board-params";
 import { applyToTuition, shortlistApplicant, withdrawApplication } from "@/server/services/applications";
 import { hireAndGenerateAgreement, scheduleTrial, signAgreementAsTutor } from "@/server/services/hiring";
 import { recordManualPayment, settleInvoice } from "@/server/services/billing";
@@ -94,6 +96,7 @@ async function main() {
   const leaver = tutors.find((t) => t.tutorProfileId === shortlisted[4].tutorProfileId)!;
   await withdrawApplication(leaver, shortlisted[4].id);
   check((await db.tuitionPost.findUniqueOrThrow({ where: { id: post.id } })).shortlistedCount === 4, "Withdrawing a shortlisted application frees the slot");
+  check((await db.tuitionPost.findUniqueOrThrow({ where: { id: post.id } })).applicationsCount === 5, "Withdrawal lowers the live applicant count (6 → 5)");
 
   // Only the owner can shortlist
   const stranger = await mkUser("STUDENT_GUARDIAN", "Stranger");
@@ -153,6 +156,29 @@ async function main() {
   await grantCredits(admin, t3.tutorProfileId!, 3);
   await applyToTuition(t3, { postId: post2.id, coverNote: pitch });
   check((await db.tutorProfile.findUniqueOrThrow({ where: { id: t3.tutorProfileId! } })).creditBalance === 1, "Credits deducted exactly once (3 → 1)");
+
+  // Applicant cap: 12 tutors race for 10 slots on one job
+  await updateSettings(admin, { monetizationMode: "COMMISSION", commissionRate: 50, commissionPayer: "TUTOR", applyCreditCost: 1, maxShortlist: 5, invoiceDueDays: 7 });
+  const capPost = await createTuitionPost(guardian, { title: "Class 8 Math tutor wanted in Dhanmondi", grade: "CLASS_6_8", curriculum: "ENGLISH_VERSION", subjects: ["MATH"], tuitionType: "HOME", daysPerWeek: 3, sessionMinutes: 60, budgetMax: 6000, salaryNegotiable: false, genderPreference: "ANY", city: "DHAKA", area: "DHANMONDI", studentsCount: 1, phone: "01811111111" });
+  const racers: SessionUser[] = [];
+  for (let i = 0; i < 12; i++) racers.push(await mkTutor(`Racer ${i}`, "MALE", admin));
+  const race = await Promise.all(racers.map((r) => applyToTuition(r, { postId: capPost.id, coverNote: pitch }).then(() => "ok", code)));
+  const cp = await db.tuitionPost.findUniqueOrThrow({ where: { id: capPost.id } });
+  check(race.filter((r) => r === "ok").length === MAX_APPLICANTS && race.filter((r) => r === "APPLICATIONS_FULL").length === 2 && cp.applicationsCount === MAX_APPLICANTS, `Applicant cap race → exactly ${MAX_APPLICANTS} applications, 2 × APPLICATIONS_FULL`);
+
+  // Board: hierarchical filters + URL round-trip + server-side pagination (10 per page)
+  const f = parseBoardParams(new URLSearchParams("city=dhaka&area=dhanmondi&medium=english-version&grade=class-6-8"));
+  check(f.city === "DHAKA" && f.area === "DHANMONDI" && f.medium === "ENGLISH_VERSION" && f.grade === "CLASS_6_8" && toBoardQuery(f) === "city=dhaka&area=dhanmondi&medium=english-version&grade=class-6-8", "Board URL params parse case-insensitively and round-trip canonically");
+  const broken = parseBoardParams(new URLSearchParams("city=chattogram&area=mirpur&medium=bangla&curriculum=english-medium-edexcel&grade=o-level"));
+  check(broken.city === "CHATTOGRAM" && !broken.area && broken.medium === "BANGLA" && !broken.curriculum && !broken.grade, "Broken chains are dropped (area ∉ city, board/class ∉ medium)");
+  check((await listOpenTuitions(f)).items.some((p) => p.id === capPost.id) && (await listOpenTuitions({ city: "DHAKA", area: "MIRPUR", medium: "ENGLISH_VERSION" })).items.length === 0, "City → Area and Medium filters narrow the board");
+  const em = await listOpenTuitions({ medium: "ENGLISH_MEDIUM" });
+  check(em.total === 0, "Medium filter matches only its curricula");
+  for (let i = 0; i < 11; i++) await createTuitionPost(guardian, { title: `Paging test tuition number ${i}`, grade: "SSC", curriculum: "BANGLA_MEDIUM", subjects: ["MATH"], tuitionType: "ONLINE_ONE_TO_ONE", daysPerWeek: 2, sessionMinutes: 60, budgetMax: 4000, salaryNegotiable: false, genderPreference: "ANY", studentsCount: 1, phone: "01811111111" });
+  const pg1 = await listOpenTuitions({ online: true });
+  const pg2 = await listOpenTuitions({ online: true, page: 2 });
+  const pg99 = await listOpenTuitions({ online: true, page: 99 });
+  check(pg1.items.length === 10 && pg1.pages === 2 && pg2.items.length === pg1.total - 10 && !pg2.items.some((x) => pg1.items.some((y) => y.id === x.id)) && pg99.page === 2, `Pagination: 10 per page, disjoint pages, ?page=99 clamps to last (${pg1.total} online jobs)`);
 
   console.log(`\n${passed} checks passed${process.exitCode ? " — WITH FAILURES" : ""}`);
 }

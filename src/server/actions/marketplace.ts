@@ -7,7 +7,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { ActionResult } from "../errors";
+import { DomainError, type ActionResult } from "../errors";
 import { requireUser } from "../auth";
 import { applySchema, createPostSchema, formToObject, hireSchema, signatureSchema, trialSchema } from "../validation";
 import { cancelTuitionPost, createTuitionPost } from "../services/posts";
@@ -40,13 +40,22 @@ export async function cancelTuitionAction(_: State, fd: FormData) {
 }
 
 // ───────── Tutor: apply with a custom pitch ─────────
+/**
+ * Apply to a tuition. Every client-side hint (auth modal, role toast, KYC prompt, "Applied" state) is
+ * re-enforced here: requireUser → role, then applyToTuition → verification, job state, cap, gender,
+ * duplicate pre-check + UNIQUE(postId, tutorProfileId), credits — all inside one locked transaction.
+ * Returns the new live applicant count so the card can update without waiting for a refresh.
+ */
 export async function applyAction(_: State, fd: FormData) {
   return run(async () => {
     const user = await requireUser(["TUTOR"]);
+    if (user.role !== "TUTOR") throw new DomainError("FORBIDDEN", "Only tutor accounts can apply to tuitions");
     const input = applySchema.parse(formToObject(fd));
-    await applyToTuition(user, input);
+    const res = await applyToTuition(user, input);
     revalidatePath("/tuitions");
+    revalidatePath(`/tuitions/${input.postId}`);
     revalidatePath("/dashboard/applications");
+    return { postId: input.postId, applicationsCount: res.applicationsCount };
   }, ["আবেদন জমা হয়েছে! অভিভাবক শর্টলিস্ট করলে জানানো হবে।", "Application sent! You'll be notified if the guardian shortlists you."]);
 }
 

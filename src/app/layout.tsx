@@ -5,6 +5,7 @@ import { getLang } from "@/lib/i18n-server";
 import { LangProvider } from "@/components/LanguageProvider";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { Toaster } from "@/components/Toaster";
 
 // Self-hosted Google fonts (Noto Sans Bengali, Tiro Bangla, Fraunces) — no runtime font requests
 const latin = localFont({ src: [{ path: "../fonts/NotoSansBengali-latin-400.woff2", weight: "400" }, { path: "../fonts/NotoSansBengali-latin-600.woff2", weight: "600" }, { path: "../fonts/NotoSansBengali-latin-700.woff2", weight: "700" }], variable: "--font-latin", display: "swap" });
@@ -26,6 +27,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <Header />
           <main>{children}</main>
           <Footer />
+          <Toaster />
         </LangProvider>
       </body>
     </html>
