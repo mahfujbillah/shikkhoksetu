@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLang } from "@/components/LanguageProvider";
 import { DemoNotice, TutorCard } from "@/components/Cards";
-import { tutors } from "@/lib/demo-data";
+import { useTutors } from "@/lib/data";
 
 export default function TutorsPage() {
   const { t, num, lang } = useLang();
   const o = t.options;
   const [f, setF] = useState({ subject: "", area: "", gender: "" });
+  const { items: tutors, loading } = useTutors();
 
   // Pick up ?subject=&area= from the home-page search (read on the client to keep the page static)
   useEffect(() => {
@@ -24,7 +25,7 @@ export default function TutorsPage() {
           (f.area === "" || x.areas.includes(+f.area)) &&
           (f.gender === "" || f.gender === "0" || x.gender === +f.gender),
       ),
-    [f],
+    [f, tutors],
   );
 
   return (
@@ -48,7 +49,7 @@ export default function TutorsPage() {
       </div>
 
       <p className="mt-6 text-sm text-muted-foreground">{num(list.length)} {lang === "en" ? "tutors" : "জন শিক্ষক"}</p>
-      {list.length === 0 ? (
+      {loading ? null : list.length === 0 ? (
         <p className="mt-6 rounded-2xl border border-dashed border-border p-10 text-center text-muted-foreground">{t.board.none}</p>
       ) : (
         <div className="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">

@@ -15,7 +15,7 @@ export type Tuition = {
 };
 
 export type Tutor = {
-  id: number;
+  id: number | string;
   name: { bn: string; en: string };
   gender: 1 | 2;
   institution: { bn: string; en: string };

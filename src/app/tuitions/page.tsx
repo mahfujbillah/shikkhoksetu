@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { useLang } from "@/components/LanguageProvider";
 import { DemoNotice, TuitionCard } from "@/components/Cards";
-import { tuitions } from "@/lib/demo-data";
+import { useTuitions } from "@/lib/data";
 
 const empty = { cls: "", subject: "", area: "", medium: "", gender: "" };
 
@@ -12,6 +12,7 @@ export default function TuitionsPage() {
   const { t, num } = useLang();
   const o = t.options;
   const [f, setF] = useState(empty);
+  const { items: tuitions, loading } = useTuitions();
 
   const list = useMemo(
     () =>
@@ -23,7 +24,7 @@ export default function TuitionsPage() {
           (f.medium === "" || x.medium === +f.medium) &&
           (f.gender === "" || x.gender === +f.gender),
       ),
-    [f],
+    [f, tuitions],
   );
 
   const sel = (key: keyof typeof empty, label: string, opts: string[], allLabel: string) => (
@@ -54,8 +55,8 @@ export default function TuitionsPage() {
         </aside>
 
         <div>
-          <p className="text-sm text-muted-foreground">{num(list.length)} {t.board.results}</p>
-          {list.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{loading ? t.auth.wait : `${num(list.length)} ${t.board.results}`}</p>
+          {loading ? null : list.length === 0 ? (
             <p className="mt-6 rounded-2xl border border-dashed border-border p-10 text-center text-muted-foreground">{t.board.none}</p>
           ) : (
             <div className="mt-4 grid gap-5 md:grid-cols-2">

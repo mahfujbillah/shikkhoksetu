@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { LanguageProvider } from "@/components/LanguageProvider";
+import { AuthProvider } from "@/components/AuthProvider";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 
@@ -37,9 +38,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="bn" className={`${latin.variable} ${bengali.variable} ${tiro.variable} ${fraunces.variable}`}>
       <body className="min-h-screen font-sans antialiased">
         <LanguageProvider>
-          <Header />
-          <main>{children}</main>
-          <Footer />
+          <AuthProvider>
+            <Header />
+            <main>{children}</main>
+            <Footer />
+          </AuthProvider>
         </LanguageProvider>
       </body>
     </html>

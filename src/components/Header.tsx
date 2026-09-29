@@ -5,11 +5,17 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { GraduationCap, Menu, X } from "lucide-react";
 import { useLang } from "./LanguageProvider";
+import { useAuth } from "./AuthProvider";
+import { isConfigured } from "@/lib/supabase";
 
 export function Header() {
   const { t, lang, setLang } = useLang();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { user, signOut } = useAuth();
+  const account = !isConfigured ? null : user
+    ? { href: "/dashboard", label: t.dash.nav }
+    : { href: "/login", label: t.nav.login };
 
   const links = [
     { href: "/tuitions", label: t.nav.tuitions },
@@ -52,9 +58,16 @@ export function Header() {
 
         <div className="hidden items-center gap-3 md:flex">
           {LangToggle}
-          <Link href="/become-tutor" className="text-sm font-medium text-muted-foreground hover:text-foreground">
-            {t.nav.become}
-          </Link>
+          {account ? (
+            <>
+              <Link href={account.href} className="text-sm font-medium text-muted-foreground hover:text-foreground">{account.label}</Link>
+              {user && <button onClick={signOut} className="text-sm text-muted-foreground hover:text-foreground">{t.auth.logout}</button>}
+            </>
+          ) : (
+            <Link href="/become-tutor" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+              {t.nav.become}
+            </Link>
+          )}
           <Link href="/post-tuition" className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow-sm transition hover:brightness-95">
             {t.nav.post}
           </Link>
@@ -70,7 +83,7 @@ export function Header() {
 
       {open && (
         <div className="border-t border-border bg-background px-4 py-3 md:hidden">
-          {[...links, { href: "/become-tutor", label: t.nav.become }].map((l) => (
+          {[...links, { href: "/become-tutor", label: t.nav.become }, ...(account ? [account] : [])].map((l) => (
             <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 text-sm hover:bg-muted">
               {l.label}
             </Link>
@@ -78,6 +91,7 @@ export function Header() {
           <Link href="/post-tuition" onClick={() => setOpen(false)} className="mt-2 block rounded-full bg-accent px-4 py-2.5 text-center text-sm font-semibold text-accent-foreground">
             {t.nav.post}
           </Link>
+          {user && <button onClick={() => { signOut(); setOpen(false); }} className="mt-2 block w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-muted">{t.auth.logout}</button>}
         </div>
       )}
     </header>

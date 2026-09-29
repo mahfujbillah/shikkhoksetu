@@ -6,12 +6,14 @@ import { useState } from "react";
 import { ArrowRight, BadgeCheck, BookOpen, Search, ShieldCheck, Star, UserRoundCheck, Video } from "lucide-react";
 import { useLang } from "@/components/LanguageProvider";
 import { DemoNotice, TuitionCard, TutorCard } from "@/components/Cards";
-import { tuitions, tutors } from "@/lib/demo-data";
+import { useTuitions, useTutors } from "@/lib/data";
 
 export default function Home() {
   const { t, num } = useLang();
   const router = useRouter();
   const [q, setQ] = useState({ cls: "", subject: "", area: "" });
+  const { items: tuitions } = useTuitions(6);
+  const { items: tutors } = useTutors(3);
   const o = t.options;
   const trustIcons = [ShieldCheck, Video, Star, UserRoundCheck];
 

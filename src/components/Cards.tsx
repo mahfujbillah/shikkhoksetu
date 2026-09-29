@@ -1,12 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { isConfigured, supabase } from "@/lib/supabase";
+import { useAuth } from "./AuthProvider";
 import { BadgeCheck, CalendarDays, Clock, MapPin, Star, Users } from "lucide-react";
 import { useLang } from "./LanguageProvider";
 import type { Tuition, Tutor } from "@/lib/demo-data";
 
 export function DemoNotice() {
   const { t } = useLang();
+  if (isConfigured) return null;
   return (
     <p className="inline-flex items-center gap-2 rounded-full border border-dashed border-accent bg-accent/10 px-3 py-1 text-xs text-foreground/80">
       <span className="size-1.5 rounded-full bg-accent" /> {t.demo}
@@ -17,7 +21,23 @@ export function DemoNotice() {
 export function TuitionCard({ item }: { item: Tuition }) {
   const { t, num, lang } = useLang();
   const [applied, setApplied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const { user, profile } = useAuth();
+  const router = useRouter();
   const o = t.options;
+
+  const apply = async () => {
+    if (!isConfigured) return setApplied(true);
+    if (!user) return router.push("/login?next=/tuitions");
+    if (profile?.role !== "tutor") return setMsg(t.auth.needTutor);
+    setBusy(true);
+    const { error } = await supabase().from("applications").insert({ tuition_id: item.id, tutor_id: user.id });
+    setBusy(false);
+    if (!error || error.code === "23505") return setApplied(true);
+    if (error.code === "23503") return setMsg(t.auth.needProfile);
+    setMsg(`${t.auth.error}: ${error.message}`);
+  };
   const posted = item.postedDaysAgo === 0 ? (lang === "bn" ? "আজ" : "today") : lang === "bn" ? `${num(item.postedDaysAgo)} দিন আগে` : `${item.postedDaysAgo}d ago`;
 
   return (
@@ -45,13 +65,14 @@ export function TuitionCard({ item }: { item: Tuition }) {
       <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
         <span className="text-xs text-muted-foreground">{num(item.applicants + (applied ? 1 : 0))} {t.board.applicants}</span>
         <button
-          onClick={() => setApplied(true)}
-          disabled={applied}
+          onClick={apply}
+          disabled={applied || busy}
           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${applied ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:brightness-110"}`}
         >
-          {applied ? t.board.applied : t.board.apply}
+          {applied ? (isConfigured ? t.board.applied.replace(/\s*\((ডেমো|demo)\)/, "") : t.board.applied) : busy ? t.auth.wait : t.board.apply}
         </button>
       </div>
+      {msg && <p className="mt-3 rounded-lg bg-accent/10 px-3 py-2 text-xs">{msg} {msg === t.auth.needProfile && <a href="/become-tutor" className="font-semibold text-primary underline">{t.nav.become}</a>}</p>}
     </article>
   );
 }
