@@ -30,7 +30,7 @@ export default async function KycQueue({ searchParams }: PageProps<"/admin/kyc">
             <Card key={p.id} className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <Link href={`/tutors/${p.id}`} className="font-bold hover:text-primary">{p.user.fullName}</Link> <StatusBadge status={p.verificationStatus} lang={lang} />
+                  <Link href={`/admin/users/${p.userId}`} className="font-bold hover:text-primary">{p.user.fullName}</Link> <StatusBadge status={p.verificationStatus} lang={lang} />
                   <p className="text-sm text-muted-foreground">{p.university}{p.department ? ` · ${p.department}` : ""} · {p.user.email} · {p.user.phone ?? "—"}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">

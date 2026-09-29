@@ -230,6 +230,7 @@ export async function cancelPendingAgreement(user: SessionUser, agreementId: str
     await tx.tuitionAgreement.update({ where: { id: ag.id }, data: { status: "CANCELLED", endedAt: new Date(), endReason: reason ?? "Withdrawn before signing" } });
     const other = ag.guardianId === user.id ? ag.tutorProfile.userId : ag.guardianId;
     await notify(tx, other, "AGREEMENT_CANCELLED", `Agreement #${ag.agreementNumber} was withdrawn`, reason, `/dashboard`);
+    await audit(tx, user.id, "AGREEMENT_CANCEL", "TuitionAgreement", ag.id, { reason: reason ?? null });
   });
 }
 
@@ -243,6 +244,7 @@ export async function endAgreement(user: SessionUser, agreementId: string, kind:
     if (ag.status !== "ACTIVE") throw new DomainError("INVALID_STATE");
     await tx.tuitionAgreement.update({ where: { id: ag.id }, data: { status: kind, endedAt: new Date(), endReason: reason } });
     if (kind === "COMPLETED") await tx.tutorProfile.update({ where: { id: ag.tutorProfileId }, data: { completedTuitions: { increment: 1 } } });
+    await audit(tx, user.id, `AGREEMENT_${kind}`, "TuitionAgreement", ag.id, { reason });
   });
 }
 

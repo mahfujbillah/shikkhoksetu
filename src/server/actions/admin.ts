@@ -16,7 +16,7 @@ type State = ActionResult<unknown> | null;
 export async function reviewKycAction(_: State, fd: FormData) {
   return run(async () => {
     await reviewKycDocument(await requireAdmin(), str(fd, "docId"), str(fd, "decision") === "approve", str(fd, "reason") || undefined);
-    revalidatePath("/admin/kyc");
+    revalidatePath("/admin", "layout");
   });
 }
 
@@ -24,7 +24,7 @@ export async function setVerificationAction(_: State, fd: FormData) {
   return run(async () => {
     const status = str(fd, "status") as "VERIFIED" | "REJECTED" | "UNVERIFIED";
     await setTutorVerification(await requireAdmin(), str(fd, "tutorProfileId"), status, str(fd, "note") || undefined);
-    revalidatePath("/admin/kyc");
+    revalidatePath("/admin", "layout");
   }, ["আপডেট হয়েছে।", "Updated."]);
 }
 
@@ -43,14 +43,14 @@ export async function kycFileUrlAction(docId: string) {
 export async function setRoleAction(_: State, fd: FormData) {
   return run(async () => {
     await setUserRole(await requireAdmin({ superOnly: true }), str(fd, "userId"), str(fd, "role") as "STUDENT_GUARDIAN" | "TUTOR" | "ADMIN");
-    revalidatePath("/admin/users");
+    revalidatePath("/admin", "layout");
   }, ["ভূমিকা বদলানো হয়েছে।", "Role updated."]);
 }
 
 export async function setBlockedAction(_: State, fd: FormData) {
   return run(async () => {
     await setUserBlocked(await requireAdmin(), str(fd, "userId"), str(fd, "blocked") === "true");
-    revalidatePath("/admin/users");
+    revalidatePath("/admin", "layout");
   });
 }
 
@@ -64,34 +64,34 @@ export async function settingsAction(_: State, fd: FormData) {
       maxShortlist: Number(str(fd, "maxShortlist")),
       invoiceDueDays: Number(str(fd, "invoiceDueDays")),
     });
-    revalidatePath("/admin/settings");
+    revalidatePath("/admin", "layout");
   }, ["সেটিংস সংরক্ষণ হয়েছে।", "Settings saved."]);
 }
 
 export async function manualPaymentAction(_: State, fd: FormData) {
   return run(async () => {
     await recordManualPayment(await requireAdmin(), str(fd, "invoiceId"), str(fd, "reference") || "manual");
-    revalidatePath("/admin/invoices");
+    revalidatePath("/admin", "layout");
   }, ["পরিশোধিত হিসেবে চিহ্নিত।", "Marked as paid."]);
 }
 
 export async function voidInvoiceAction(_: State, fd: FormData) {
   return run(async () => {
     await voidInvoice(await requireAdmin(), str(fd, "invoiceId"), str(fd, "reason") || "Voided by admin");
-    revalidatePath("/admin/invoices");
+    revalidatePath("/admin", "layout");
   });
 }
 
 export async function grantCreditsAction(_: State, fd: FormData) {
   return run(async () => {
     await grantCredits(await requireAdmin(), str(fd, "tutorProfileId"), Number(str(fd, "credits")));
-    revalidatePath("/admin/users");
+    revalidatePath("/admin", "layout");
   }, ["ক্রেডিট যোগ হয়েছে।", "Credits granted."]);
 }
 
 export async function adminCancelPostAction(_: State, fd: FormData) {
   return run(async () => {
     await cancelTuitionPost(await requireAdmin(), str(fd, "postId"));
-    revalidatePath("/admin/tuitions");
+    revalidatePath("/admin", "layout");
   });
 }

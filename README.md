@@ -82,6 +82,24 @@ Content-Type: application/json
 [{ "lmsStudentId": "stu_1024", "courseId": "acc-u2", "courseTitle": "A Level Accounting U2", "metric": "quiz_avg", "value": 78.5 }]
 ```
 
+## 3b. Admin CRM (`/admin`)
+
+Admins sign in normally. The header shows an **Admin** link, which opens the CRM. Every page is behind `requireAdmin()`, and every change writes an `audit_logs` row.
+
+| Area | What you can see | What you can control |
+|---|---|---|
+| Dashboard | KPIs, 30-day charts (signups, posts, revenue), "needs attention" alerts, recent activity | — |
+| Search | Users, posts (#number), agreements, invoices (INV-…), transactions (tran_id) in one box | — |
+| Users → 360° page | Profile, KYC files, posts, applications, agreements, invoices, reviews, credit ledger, notifications, audit trail | Edit name, phone and LMS id; change role (super admin only); block or unblock; add or deduct credits; approve or reject KYC; force the badge (super admin only); private notes; direct notification |
+| Tuition posts → detail | Every field, including the private address, and every applicant with their trials | Edit the post, cancel or re-open it, reject or restore applicants, notes |
+| Applications / Trials | All of them, filterable | Reject or restore an application |
+| Agreements → detail | Terms, signatures with IP addresses, invoices and transactions, session log, salary, LMS data, review | Cancel an unsigned agreement, mark one completed or terminate it, mark invoices paid, void invoices, notes |
+| Sessions & salary / Invoices / Payments / Reviews | Everything, with totals | Mark paid or void; delete a review (super admin only; the tutor's rating is recalculated) |
+| Notifications | Broadcast history | Send to everyone (super admin only), all tutors, verified tutors, guardians, admins, or one user |
+| Audit log / Export | Every action | Download CSV (opens in Excel with Bangla intact; spreadsheet formulas are neutralised) |
+
+Admin notes are stored as `audit_logs` rows with `action = 'ADMIN_NOTE'`, so the CRM needs no extra migration.
+
 ## 4. Project layout
 
 ```
