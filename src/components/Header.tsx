@@ -12,7 +12,7 @@ export function Header() {
   const { t, lang, setLang } = useLang();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const { user, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const account = !isConfigured ? null : user
     ? { href: "/dashboard", label: t.dash.nav }
     : { href: "/login", label: t.nav.login };
@@ -48,7 +48,7 @@ export function Header() {
           <span className="font-display text-lg font-bold tracking-tight">{t.brand}</span>
         </Link>
 
-        <nav className="hidden items-center gap-6 text-sm md:flex">
+        <nav className="hidden items-center gap-5 whitespace-nowrap text-sm lg:flex">
           {links.map((l) => (
             <Link key={l.href} href={l.href} className={`transition hover:text-primary ${pathname === l.href ? "font-semibold text-primary" : "text-muted-foreground"}`}>
               {l.label}
@@ -56,11 +56,12 @@ export function Header() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-3 whitespace-nowrap lg:flex">
           {LangToggle}
           {account ? (
             <>
               <Link href={account.href} className="text-sm font-medium text-muted-foreground hover:text-foreground">{account.label}</Link>
+              {profile?.role === "admin" && <Link href="/admin" className="text-sm font-semibold text-primary hover:underline">Admin</Link>}
               {user && <button onClick={signOut} className="text-sm text-muted-foreground hover:text-foreground">{t.auth.logout}</button>}
             </>
           ) : (
@@ -73,7 +74,7 @@ export function Header() {
           </Link>
         </div>
 
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 lg:hidden">
           {LangToggle}
           <button onClick={() => setOpen(!open)} className="rounded-lg p-2 hover:bg-muted" aria-label="Menu">
             {open ? <X className="size-5" /> : <Menu className="size-5" />}
@@ -82,8 +83,8 @@ export function Header() {
       </div>
 
       {open && (
-        <div className="border-t border-border bg-background px-4 py-3 md:hidden">
-          {[...links, { href: "/become-tutor", label: t.nav.become }, ...(account ? [account] : [])].map((l) => (
+        <div className="border-t border-border bg-background px-4 py-3 lg:hidden">
+          {[...links, { href: "/become-tutor", label: t.nav.become }, ...(account ? [account] : []), ...(profile?.role === "admin" ? [{ href: "/admin", label: "Admin" }] : [])].map((l) => (
             <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 text-sm hover:bg-muted">
               {l.label}
             </Link>

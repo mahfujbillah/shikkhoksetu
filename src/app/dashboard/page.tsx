@@ -109,7 +109,7 @@ function GuardianView({ userId, num }: { userId: string; num: (n: number | strin
                     {list.map((a) => (
                       <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
                         <div>
-                          <span className="flex items-center gap-1 font-medium">{a.tutors?.full_name}{a.tutors?.verified && <BadgeCheck className="size-4 text-primary" />}</span>
+                          <Link href={`/tutor?id=${a.tutor_id}`} className="flex items-center gap-1 font-medium hover:text-primary">{a.tutors?.full_name}{a.tutors?.verified && <BadgeCheck className="size-4 text-primary" />}</Link>
                           <span className="text-muted-foreground">{a.tutors?.institution} · {num(a.tutors?.experience ?? 0)} {t.directory.exp}</span>
                         </div>
                         {a.status === "pending" ? (

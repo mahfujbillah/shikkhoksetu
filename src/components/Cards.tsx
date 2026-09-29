@@ -117,9 +117,9 @@ export function TutorCard({ tutor }: { tutor: Tutor }) {
           <span className="font-bold text-primary">৳{num(tutor.salary)}</span>
           <span className="text-muted-foreground">{t.board.perMonth}</span>
         </div>
-        <button className="rounded-full border border-primary px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-primary-foreground">
+        <a href={`/tutor?id=${tutor.id}`} className="rounded-full border border-primary px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-primary-foreground">
           {t.directory.view}
-        </button>
+        </a>
       </div>
     </article>
   );
